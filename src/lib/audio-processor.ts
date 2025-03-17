@@ -1,20 +1,18 @@
+'use server';
+
+// Server-side only imports
 import fs from 'fs';
 import path from 'path';
 import util from 'util';
 import { v4 as uuidv4 } from 'uuid';
 
-// Import child_process only in Node.js environment
+// Convert exec to Promise-based
 let execPromise: (command: string) => Promise<{ stdout: string; stderr: string }>;
 
-// Check if running on server-side
-if (typeof window === 'undefined') {
-  // We're on the server
-  const { exec } = require('child_process');
-  execPromise = util.promisify(exec);
-} else {
-  // We're in the browser
-  execPromise = () => Promise.reject(new Error('Cannot execute commands in browser environment'));
-}
+// Import child_process only in Node.js environment
+// We don't need to check for window as 'use server' ensures this runs on server
+const { exec } = require('child_process');
+execPromise = util.promisify(exec);
 
 // Constants
 const INTRO_OUTRO_DIR = path.join(process.cwd(), 'Introandoutro');

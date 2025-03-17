@@ -6,7 +6,21 @@ import Link from 'next/link';
 import { Sermon, Recording } from '@/types';
 import TranscribeButton from '@/components/TranscribeButton';
 import AudioFileInfo from '@/components/AudioFileInfo';
-import { podcastVersionExists, getPodcastFileUrl } from '@/lib/audio-processor';
+
+// Function to check podcast existence and get URL through server action
+async function checkPodcastExists(sermonId: string): Promise<boolean> {
+  const response = await fetch(`/api/sermons/${sermonId}/podcast-exists`);
+  if (!response.ok) return false;
+  const data = await response.json();
+  return data.exists;
+}
+
+async function getPodcastUrl(sermonId: string): Promise<string | null> {
+  const response = await fetch(`/api/sermons/${sermonId}/podcast-url`);
+  if (!response.ok) return null;
+  const data = await response.json();
+  return data.url;
+}
 
 export default function SermonDetailsPage() {
   const router = useRouter();
@@ -22,9 +36,9 @@ export default function SermonDetailsPage() {
   const [fixingAudio, setFixingAudio] = useState(false);
   const [directAudioUrl, setDirectAudioUrl] = useState('');
 
-  // Check for podcast version
-  const hasPodcastVersion = podcastVersionExists(sermonId);
-  const podcastUrl = hasPodcastVersion ? getPodcastFileUrl(sermonId) : null;
+  // State for podcast info
+  const [hasPodcastVersion, setHasPodcastVersion] = useState(false);
+  const [podcastUrl, setPodcastUrl] = useState<string | null>(null);
 
   // Load the sermon details
   useEffect(() => {
@@ -167,6 +181,28 @@ export default function SermonDetailsPage() {
       setShowRecordingSelector(false);
     }
   };
+
+  useEffect(() => {
+    fetchSermonDetails();
+    fetchRecordings();
+    
+    // Check podcast status
+    const checkPodcast = async () => {
+      try {
+        const exists = await checkPodcastExists(sermonId);
+        setHasPodcastVersion(exists);
+        
+        if (exists) {
+          const url = await getPodcastUrl(sermonId);
+          setPodcastUrl(url);
+        }
+      } catch (error) {
+        console.error("Error checking podcast status:", error);
+      }
+    };
+    
+    checkPodcast();
+  }, [sermonId]);
 
   if (isLoading) {
     return (
