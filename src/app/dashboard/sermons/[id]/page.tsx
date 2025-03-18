@@ -6,22 +6,6 @@ import Link from 'next/link';
 import { Sermon, Recording } from '@/types';
 import TranscribeButton from '@/components/TranscribeButton';
 import AudioFileInfo from '@/components/AudioFileInfo';
-import { podcastVersionExists, getPodcastFileUrl } from '@/lib/audio-processor-client';
-
-// Function to check podcast existence and get URL through server action
-async function checkPodcastExists(sermonId: string): Promise<boolean> {
-  const response = await fetch(`/api/sermons/${sermonId}/podcast-exists`);
-  if (!response.ok) return false;
-  const data = await response.json();
-  return data.exists;
-}
-
-async function getPodcastUrl(sermonId: string): Promise<string | null> {
-  const response = await fetch(`/api/sermons/${sermonId}/podcast-url`);
-  if (!response.ok) return null;
-  const data = await response.json();
-  return data.url;
-}
 
 export default function SermonDetailsPage() {
   const router = useRouter();
@@ -36,10 +20,6 @@ export default function SermonDetailsPage() {
   const [showRecordingSelector, setShowRecordingSelector] = useState(false);
   const [fixingAudio, setFixingAudio] = useState(false);
   const [directAudioUrl, setDirectAudioUrl] = useState('');
-
-  // State for podcast info
-  const [hasPodcastVersion, setHasPodcastVersion] = useState(false);
-  const [podcastUrl, setPodcastUrl] = useState<string | null>(null);
 
   // Load the sermon details
   useEffect(() => {
@@ -184,25 +164,12 @@ export default function SermonDetailsPage() {
   };
 
   useEffect(() => {
-    fetchSermonDetails();
-    fetchRecordings();
-    
-    // Check podcast status
-    const checkPodcast = async () => {
-      try {
-        const exists = await checkPodcastExists(sermonId);
-        setHasPodcastVersion(exists);
-        
-        if (exists) {
-          const url = await getPodcastUrl(sermonId);
-          setPodcastUrl(url);
-        }
-      } catch (error) {
-        console.error("Error checking podcast status:", error);
-      }
+    // Load initial data
+    const loadInitialData = async () => {
+      await fetchRecordings();
     };
     
-    checkPodcast();
+    loadInitialData();
   }, [sermonId]);
 
   if (isLoading) {
@@ -436,78 +403,6 @@ export default function SermonDetailsPage() {
                 </button>
               ) : null}
             </div>
-          </div>
-        </div>
-      )}
-      
-      {/* Add this after the Audio section */}
-      {hasPodcastVersion && (
-        <div className="mb-8 p-6 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-lg border border-purple-200">
-          <h2 className="text-xl font-bold mb-4 flex items-center">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-2 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-            </svg>
-            Podcast Version
-          </h2>
-          
-          <p className="mb-4 text-gray-700">
-            This sermon has been processed with intro/outro and volume normalization for podcast use.
-          </p>
-          
-          {podcastUrl && (
-            <div className="mb-4">
-              <audio 
-                className="w-full" 
-                controls 
-                src={podcastUrl}
-              >
-                Your browser does not support the audio element.
-              </audio>
-            </div>
-          )}
-          
-          <div className="flex space-x-4">
-            {podcastUrl && (
-              <a 
-                href={podcastUrl} 
-                download={`${sermon.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_podcast.mp3`}
-                className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 flex items-center"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
-                </svg>
-                Download Podcast Version
-              </a>
-            )}
-            
-            {!hasPodcastVersion && sermon.audiourl && (
-              <button
-                onClick={async () => {
-                  try {
-                    const response = await fetch(`/api/sermons/${sermonId}/process-podcast`, {
-                      method: 'POST',
-                    });
-                    
-                    if (response.ok) {
-                      // Reload the page after processing
-                      window.location.reload();
-                    } else {
-                      const data = await response.json();
-                      alert(`Error: ${data.error || 'Failed to process podcast'}`);
-                    }
-                  } catch (error) {
-                    console.error('Error processing podcast:', error);
-                    alert('An error occurred while processing the podcast');
-                  }
-                }}
-                className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 flex items-center"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-                </svg>
-                Create Podcast Version
-              </button>
-            )}
           </div>
         </div>
       )}
