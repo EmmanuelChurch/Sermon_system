@@ -6,13 +6,9 @@ import path from 'path';
 import util from 'util';
 import { v4 as uuidv4 } from 'uuid';
 
-// Convert exec to Promise-based
-let execPromise: (command: string) => Promise<{ stdout: string; stderr: string }>;
-
-// Import child_process only in Node.js environment
-// We don't need to check for window as 'use server' ensures this runs on server
+// Server-only imports
 const { exec } = require('child_process');
-execPromise = util.promisify(exec);
+const execPromise = util.promisify(exec);
 
 // Constants
 const INTRO_OUTRO_DIR = path.join(process.cwd(), 'Introandoutro');

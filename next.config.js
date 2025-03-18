@@ -1,14 +1,5 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Make the recordings directory accessible from the web
-  async rewrites() {
-    return [
-      {
-        source: '/recordings/:path*',
-        destination: '/api/file/:path*',
-      },
-    ];
-  },
   webpack: (config, { isServer }) => {
     if (!isServer) {
       // Replace Node.js modules with empty modules in browser context
@@ -23,6 +14,8 @@ const nextConfig = {
     }
     return config;
   },
+  // Ensure serverless deployment on Vercel
+  output: 'standalone',
 };
 
-export default nextConfig; 
+module.exports = nextConfig; 
