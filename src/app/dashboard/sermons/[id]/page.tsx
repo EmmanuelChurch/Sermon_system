@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Sermon, Recording } from '@/types';
 import TranscribeButton from '@/components/TranscribeButton';
 import AudioFileInfo from '@/components/AudioFileInfo';
+import { podcastVersionExists, getPodcastFileUrl } from '@/lib/audio-processor-client';
 
 // Function to check podcast existence and get URL through server action
 async function checkPodcastExists(sermonId: string): Promise<boolean> {

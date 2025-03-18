@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSermonById } from '@/lib/local-storage';
+import { getSermons, saveSermon } from '@/lib/local-storage';
 import { downloadAudioFile } from '@/lib/openai-whisper';
 import { processSermonAudio } from '@/lib/audio-processor';
 import path from 'path';
 import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
+import { Sermon } from '@/types';
 
 export async function POST(
   request: NextRequest,
@@ -22,55 +23,69 @@ export async function POST(
     
     console.log(`Processing sermon ${sermonId} for podcast use`);
     
-    // Get the sermon
-    const sermon = getSermonById(sermonId);
+    // Get sermon data
+    const sermons = await getSermons();
+    const sermon = sermons.find((s: Sermon) => s.id === sermonId);
     
     if (!sermon) {
-      return NextResponse.json(
-        { error: 'Sermon not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Sermon not found' }, { status: 404 });
     }
     
-    // Check if audio URL exists
     if (!sermon.audiourl) {
-      return NextResponse.json(
-        { error: 'Sermon has no audio file' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'No audio URL available for this sermon' }, { status: 400 });
     }
     
-    // Download the audio file
-    const tempDir = path.join(os.tmpdir(), 'sermon-process', sermonId);
-    const tempFile = path.join(tempDir, `${uuidv4()}.mp3`);
+    // Process audio using our API endpoint
+    const processorResponse = await fetch(new URL('/api/audio-processor', request.url), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        action: 'processAudio',
+        sermonId,
+        inputAudioPath: sermon.audiourl,
+      }),
+    });
     
-    try {
-      console.log(`Downloading audio file from ${sermon.audiourl}`);
-      const audioFilePath = await downloadAudioFile(sermon.audiourl, tempFile);
-      
-      // Process the audio with intro/outro and normalize
-      console.log('Processing audio for podcast use...');
-      const podcastPath = await processSermonAudio(audioFilePath, sermonId);
-      
-      console.log(`Successfully created podcast version at ${podcastPath}`);
-      
-      return NextResponse.json({
-        success: true,
-        message: 'Podcast version created successfully',
-        podcastUrl: `/api/podcast/${sermonId}_podcast.mp3`
-      });
-    } catch (error) {
-      console.error('Error processing sermon for podcast:', error);
-      return NextResponse.json(
-        { error: error instanceof Error ? error.message : 'Failed to process sermon for podcast' },
-        { status: 500 }
-      );
+    if (!processorResponse.ok) {
+      const error = await processorResponse.json();
+      throw new Error(error.error || 'Failed to process podcast');
     }
+    
+    const processorData = await processorResponse.json();
+    
+    // Update sermon with podcast URL
+    const podcastUrlResponse = await fetch(new URL('/api/audio-processor', request.url), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        action: 'getPodcastUrl',
+        sermonId,
+      }),
+    });
+    
+    if (podcastUrlResponse.ok) {
+      const urlData = await podcastUrlResponse.json();
+      
+      // Update sermon with podcast URL
+      if (urlData.url) {
+        sermon.podcasturl = urlData.url;
+        await saveSermon(sermon);
+      }
+    }
+    
+    return NextResponse.json({ 
+      success: true,
+      outputPath: processorData.outputPath
+    });
+    
   } catch (error) {
-    console.error('Error in podcast processing endpoint:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    console.error('Error processing podcast:', error);
+    return NextResponse.json({ 
+      error: error instanceof Error ? error.message : 'Failed to process podcast' 
+    }, { status: 500 });
   }
 } 
