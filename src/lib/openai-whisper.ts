@@ -1,3 +1,5 @@
+'use server';
+
 import { supabaseAdmin } from '@/lib/supabase';
 import OpenAI from 'openai';
 import fs from 'fs';

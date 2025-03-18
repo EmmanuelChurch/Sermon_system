@@ -1,6 +1,8 @@
+'use server';
+
 import { exec } from 'child_process';
 import path from 'path';
-import fs from 'fs';
+import { promises as fs } from 'fs';
 import crypto from 'crypto';
 import axios from 'axios';
 import util from 'util';
@@ -10,8 +12,8 @@ const execAsync = util.promisify(exec);
 // Function to download a file from a URL to a local path
 async function downloadFile(url: string): Promise<string> {
   const tempDir = path.join(process.cwd(), 'temp');
-  if (!fs.existsSync(tempDir)) {
-    fs.mkdirSync(tempDir, { recursive: true });
+  if (!fs.access(tempDir)) {
+    await fs.mkdir(tempDir, { recursive: true });
   }
   
   const urlHash = crypto.createHash('md5').update(url).digest('hex');
@@ -30,7 +32,7 @@ async function downloadFile(url: string): Promise<string> {
       }
     });
     
-    fs.writeFileSync(tempFilePath, response.data);
+    await fs.writeFile(tempFilePath, response.data);
     console.log(`Downloaded file (${response.data.length} bytes) to ${tempFilePath}`);
     
     return tempFilePath;
@@ -81,7 +83,7 @@ export async function transcribeWithLocalWhisper(audioUrl: string): Promise<stri
         const fileName = audioUrl.split('/').pop();
         filePath = path.join(process.cwd(), 'recordings', fileName || '');
         
-        if (!fs.existsSync(filePath)) {
+        if (!fs.access(filePath)) {
           throw new Error(`File not found at ${filePath}`);
         }
       }
@@ -89,7 +91,7 @@ export async function transcribeWithLocalWhisper(audioUrl: string): Promise<stri
       // Assume it's already a file path
       filePath = audioUrl;
       
-      if (!fs.existsSync(filePath)) {
+      if (!fs.access(filePath)) {
         throw new Error(`File not found at ${filePath}`);
       }
     }
@@ -129,12 +131,12 @@ export async function transcribeWithLocalWhisper(audioUrl: string): Promise<stri
     }
     
     // Check if output file exists
-    if (!fs.existsSync(outputFilePath)) {
+    if (!fs.access(outputFilePath)) {
       throw new Error(`Transcription output file not found at ${outputFilePath}`);
     }
     
     // Read the transcription from the output file
-    const transcription = fs.readFileSync(outputFilePath, 'utf8');
+    const transcription = await fs.readFile(outputFilePath, 'utf8');
     
     console.log('Transcription successful');
     
