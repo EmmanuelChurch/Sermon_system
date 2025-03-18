@@ -1,0 +1,5 @@
+[33mcommit 22a7a106f1870bce862d9f3475028cf756142de0[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m
+Author: maceiraluisa <maceiraluisa@gmail.com>
+Date:   Tue Mar 18 07:34:04 2025 +0000
+
+    Remove podcast functionality from client components to fix build

@@ -3,12 +3,12 @@
 import path from 'path';
 import fs from 'fs';
 
-// Define storage paths based on environment
+// Check if we're in development mode
 const isDev = process.env.NODE_ENV === 'development';
 const useVercelBlob = process.env.USE_VERCEL_BLOB === 'true';
 
 // Storage base paths
-export const getStoragePaths = () => {
+export async function getStoragePaths() {
   // In development, use local file system
   if (isDev) {
     const baseDir = path.join(process.cwd(), 'local-storage');
@@ -63,8 +63,8 @@ export const getStoragePaths = () => {
 };
 
 // Ensure all storage directories exist
-export const ensureStorageDirs = () => {
-  const paths = getStoragePaths();
+export async function ensureStorageDirs() {
+  const paths = await getStoragePaths();
   
   // If using Vercel Blob, we don't need local directories
   if (paths.useVercelBlob) {
@@ -95,8 +95,8 @@ export const ensureStorageDirs = () => {
 };
 
 // Get public URL for a file based on its path
-export const getPublicUrl = (filePath: string, baseUrl = process.env.NEXT_PUBLIC_APP_URL || '') => {
-  const paths = getStoragePaths();
+export async function getPublicUrl(filePath: string, baseUrl = process.env.NEXT_PUBLIC_APP_URL || '') {
+  const paths = await getStoragePaths();
   
   // If using Vercel Blob, we'll assume filePath is already a URL
   if (paths.useVercelBlob) {
@@ -124,4 +124,4 @@ export const getPublicUrl = (filePath: string, baseUrl = process.env.NEXT_PUBLIC
   
   // Default URL (might not work)
   return `${baseUrl}/${filePath}`;
-}; 
+} 

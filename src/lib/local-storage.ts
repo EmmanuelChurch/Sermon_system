@@ -3,8 +3,14 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { getStoragePaths, ensureStorageDirs, getPublicUrl } from './storage-config';
 
-// Get storage paths
-const PATHS = getStoragePaths();
+// Get storage paths - initialize asynchronously
+let PATHS: any = null;
+async function initPaths() {
+  if (!PATHS) {
+    PATHS = await getStoragePaths();
+  }
+  return PATHS;
+}
 
 // Base directory for storing files and data
 const BASE_DIR = path.join(process.cwd(), 'local-storage');
@@ -13,15 +19,17 @@ const TRANSCRIPTIONS_DIR = path.join(BASE_DIR, 'transcriptions');
 const SERMON_DATA_FILE = path.join(BASE_DIR, 'sermons.json');
 
 // Ensure directories exist
-export function ensureDirectoriesExist() {
-  return ensureStorageDirs();
+export async function ensureDirectoriesExist() {
+  return await ensureStorageDirs();
 }
 
 // Get all sermons
-export function getSermons() {
-  ensureDirectoriesExist();
+export async function getSermons() {
+  await ensureDirectoriesExist();
+  const paths = await initPaths();
+  
   try {
-    const data = fs.readFileSync(PATHS.sermonsFile, 'utf8');
+    const data = await fs.promises.readFile(paths.sermonsFile, 'utf8');
     return JSON.parse(data).sermons;
   } catch (error) {
     console.error('Error reading sermons file:', error);
@@ -30,15 +38,16 @@ export function getSermons() {
 }
 
 // Get a single sermon by ID
-export function getSermonById(id: string) {
-  const sermons = getSermons();
+export async function getSermonById(id: string) {
+  const sermons = await getSermons();
   return sermons.find((sermon: any) => sermon.id === id);
 }
 
 // Save a sermon (create or update)
-export function saveSermon(sermon: any) {
-  ensureDirectoriesExist();
-  const sermons = getSermons();
+export async function saveSermon(sermon: any) {
+  await ensureDirectoriesExist();
+  const sermons = await getSermons();
+  const paths = await initPaths();
   
   const index = sermons.findIndex((s: any) => s.id === sermon.id);
   
@@ -55,7 +64,7 @@ export function saveSermon(sermon: any) {
     sermons.push(sermon);
   }
   
-  fs.writeFileSync(PATHS.sermonsFile, JSON.stringify({ sermons }, null, 2));
+  await fs.promises.writeFile(paths.sermonsFile, JSON.stringify({ sermons }, null, 2));
   return sermon;
 }
 
@@ -236,11 +245,11 @@ export async function updateSnippet(sermonId: string, snippetId: string, updates
 }
 
 // Delete a sermon by ID
-export function deleteSermon(id: string) {
-  ensureDirectoriesExist();
+export async function deleteSermon(id: string) {
+  await ensureDirectoriesExist();
   
   // Get all sermons
-  const sermons = getSermons();
+  const sermons = await getSermons();
   
   // Find the sermon
   const sermon = sermons.find((s: any) => s.id === id);
@@ -252,15 +261,17 @@ export function deleteSermon(id: string) {
   // Remove the sermon from the array
   const updatedSermons = sermons.filter((s: any) => s.id !== id);
   
+  const paths = await initPaths();
+  
   // Save the updated sermons array
-  fs.writeFileSync(PATHS.sermonsFile, JSON.stringify({ sermons: updatedSermons }, null, 2));
+  await fs.promises.writeFile(paths.sermonsFile, JSON.stringify({ sermons: updatedSermons }, null, 2));
   
   // Clean up associated files
   
   // 1. Delete audio file if it exists and is local
   if (sermon.audiourl && sermon.audiourl.startsWith('/api/file/')) {
     const filename = sermon.audiourl.split('/').pop();
-    const audioFilePath = path.join(AUDIO_DIR, filename);
+    const audioFilePath = path.join(paths.audioDir, filename);
     
     if (fs.existsSync(audioFilePath)) {
       try {
@@ -273,7 +284,7 @@ export function deleteSermon(id: string) {
   }
   
   // 2. Delete transcription file if it exists
-  const transcriptionFilePath = path.join(TRANSCRIPTIONS_DIR, `${id}.txt`);
+  const transcriptionFilePath = path.join(paths.transcriptionsDir, `${id}.txt`);
   if (fs.existsSync(transcriptionFilePath)) {
     try {
       fs.unlinkSync(transcriptionFilePath);
@@ -284,7 +295,7 @@ export function deleteSermon(id: string) {
   }
   
   // 3. Delete snippets file if it exists
-  const SNIPPETS_DIR = path.join(BASE_DIR, 'snippets');
+  const SNIPPETS_DIR = path.join(paths.baseDir, 'snippets');
   const snippetsFilePath = path.join(SNIPPETS_DIR, `${id}.json`);
   if (fs.existsSync(snippetsFilePath)) {
     try {

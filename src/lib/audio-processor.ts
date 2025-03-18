@@ -88,7 +88,7 @@ export async function processSermonAudio(
 /**
  * Get the podcast-ready file URL for a sermon
  */
-export function getPodcastFileUrl(sermonId: string): string | null {
+export async function getPodcastFileUrl(sermonId: string): Promise<string | null> {
   const podcastFilePath = path.join(PODCAST_DIR, `${sermonId}_podcast.mp3`);
   
   if (fs.existsSync(podcastFilePath)) {
@@ -102,7 +102,7 @@ export function getPodcastFileUrl(sermonId: string): string | null {
 /**
  * Check if a podcast version of a sermon exists
  */
-export function podcastVersionExists(sermonId: string): boolean {
+export async function podcastVersionExists(sermonId: string): Promise<boolean> {
   const podcastFilePath = path.join(PODCAST_DIR, `${sermonId}_podcast.mp3`);
   return fs.existsSync(podcastFilePath);
 }
@@ -110,6 +110,6 @@ export function podcastVersionExists(sermonId: string): boolean {
 /**
  * Get the local file path for a podcast file
  */
-export function getPodcastFilePath(filename: string): string {
+export async function getPodcastFilePath(filename: string): Promise<string> {
   return path.join(PODCAST_DIR, filename);
 } 

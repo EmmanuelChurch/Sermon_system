@@ -213,7 +213,7 @@ export async function checkFfmpeg(): Promise<boolean> {
 /**
  * Get FFmpeg installation instructions for the current platform
  */
-export function getFfmpegInstallInstructions(): string {
+export async function getFfmpegInstallInstructions(): Promise<string> {
   const platform = process.platform;
   
   switch (platform) {
@@ -255,7 +255,7 @@ export async function compressAudioFile(inputPath: string, sermonId?: string, ta
   const isAvailable = await checkFfmpeg();
   
   if (!isAvailable) {
-    const instructions = getFfmpegInstallInstructions();
+    const instructions = await getFfmpegInstallInstructions();
     throw new Error(`FFmpeg is not available for audio compression. ${instructions}`);
   }
 

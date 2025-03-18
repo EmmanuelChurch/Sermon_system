@@ -3,67 +3,84 @@
 import fs from 'fs';
 import path from 'path';
 import { getStoragePaths } from './storage-config';
-import { getPodcastFileUrl, podcastVersionExists } from './audio-processor';
+import { podcastVersionExists, getPodcastFileUrl } from './audio-processor';
 
-// Helper function to escape XML special characters
-function escapeXml(unsafe: string): string {
+// Escape special XML characters
+async function escapeXml(unsafe: string): Promise<string> {
   if (!unsafe) return '';
-  
-  return unsafe.replace(/[<>&'"]/g, c => {
-    switch (c) {
-      case '<': return '&lt;';
-      case '>': return '&gt;';
-      case '&': return '&amp;';
-      case '\'': return '&apos;';
-      case '"': return '&quot;';
-      default: return c;
-    }
-  });
+  return unsafe
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
 
 // Get file size in bytes
-function getFileSizeInBytes(filePath: string): number {
+async function getFileSizeInBytes(filePath: string): Promise<number> {
   try {
-    if (!fs.existsSync(filePath)) return 0;
-    const stats = fs.statSync(filePath);
-    return stats.size;
+    if (fs.existsSync(filePath)) {
+      const stats = fs.statSync(filePath);
+      return stats.size;
+    }
+    return 0;
   } catch (error) {
-    console.error(`Error getting file size for ${filePath}:`, error);
+    console.error('Error getting file size:', error);
     return 0;
   }
 }
 
-// Get audio duration in seconds
-function getDurationInSeconds(sermonId: string): number {
-  try {
-    // This would ideally use a proper audio metadata library
-    // For now, return a placeholder duration
-    return 1800; // 30 minutes default
-  } catch (error) {
-    console.error(`Error getting duration for sermon ${sermonId}:`, error);
-    return 1800; // Default to 30 minutes
-  }
+// Default duration is 30 minutes
+async function getDurationInSeconds(sermonId: string): Promise<number> {
+  // For now, return a default duration of 30 minutes
+  return 30 * 60;
 }
 
-// Format as HH:MM:SS
-function formatDuration(seconds: number): string {
+// Format duration as HH:MM:SS
+async function formatDuration(seconds: number): Promise<string> {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
+  const remainingSeconds = seconds % 60;
   
-  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
 }
 
 // Generate the podcast RSS feed
-export function generatePodcastRSS(sermons: any[]) {
-  const PATHS = getStoragePaths();
+export async function generatePodcastRSS(sermons: any[]) {
+  const PATHS = await getStoragePaths();
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://example.com';
   const podcastImageUrl = `${baseUrl}/podcast-cover.jpg`;
   
   // Filter sermons with podcast versions
   const podcastSermons = sermons.filter(sermon => 
-    sermon.podcastUrl || (sermon.id && podcastVersionExists(sermon.id))
+    sermon.podcastUrl || (sermon.id && await podcastVersionExists(sermon.id))
   ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  
+  // Build items first
+  const items = await Promise.all(podcastSermons.map(async (sermon) => {
+    const podcastUrl = sermon.podcastUrl || await getPodcastFileUrl(sermon.id);
+    const podcastFilePath = path.join(PATHS.podcastDir, `${sermon.id}_podcast.mp3`);
+    const fileSize = await getFileSizeInBytes(podcastFilePath);
+    const durationSeconds = await getDurationInSeconds(sermon.id);
+    
+    // Skip if podcast URL doesn't exist
+    if (!podcastUrl) return '';
+    
+    return `
+    <item>
+      <title>${await escapeXml(sermon.title)}</title>
+      <itunes:author>${await escapeXml(sermon.speaker)}</itunes:author>
+      <pubDate>${new Date(sermon.date).toUTCString()}</pubDate>
+      <enclosure 
+        url="${baseUrl}${podcastUrl}" 
+        type="audio/mpeg" 
+        length="${fileSize}"
+      />
+      <guid isPermaLink="false">${sermon.id}</guid>
+      <itunes:duration>${await formatDuration(durationSeconds)}</itunes:duration>
+      <description>${await escapeXml(sermon.description || sermon.title)}</description>
+    </item>`;
+  }));
   
   // Basic podcast info
   const rss = `<?xml version="1.0" encoding="UTF-8"?>
@@ -83,30 +100,7 @@ export function generatePodcastRSS(sermons: any[]) {
     <itunes:explicit>no</itunes:explicit>
     <copyright>©${new Date().getFullYear()} Emmanuel Church London</copyright>
     
-    ${podcastSermons.map(sermon => {
-      const podcastUrl = sermon.podcastUrl || getPodcastFileUrl(sermon.id);
-      const podcastFilePath = path.join(PATHS.podcastDir, `${sermon.id}_podcast.mp3`);
-      const fileSize = getFileSizeInBytes(podcastFilePath);
-      const durationSeconds = getDurationInSeconds(sermon.id);
-      
-      // Skip if podcast URL doesn't exist
-      if (!podcastUrl) return '';
-      
-      return `
-    <item>
-      <title>${escapeXml(sermon.title)}</title>
-      <itunes:author>${escapeXml(sermon.speaker)}</itunes:author>
-      <pubDate>${new Date(sermon.date).toUTCString()}</pubDate>
-      <enclosure 
-        url="${baseUrl}${podcastUrl}" 
-        type="audio/mpeg" 
-        length="${fileSize}"
-      />
-      <guid isPermaLink="false">${sermon.id}</guid>
-      <itunes:duration>${formatDuration(durationSeconds)}</itunes:duration>
-      <description>${escapeXml(sermon.description || sermon.title)}</description>
-    </item>`;
-    }).join('')}
+    ${items.join('')}
   </channel>
 </rss>`;
 

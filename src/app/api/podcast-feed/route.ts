@@ -4,8 +4,8 @@ import { generatePodcastRSS } from '@/lib/podcast-rss';
 
 export async function GET() {
   try {
-    const sermons = getSermons();
-    const rssFeed = generatePodcastRSS(sermons);
+    const sermons = await getSermons();
+    const rssFeed = await generatePodcastRSS(sermons);
     
     return new NextResponse(rssFeed, {
       headers: {
