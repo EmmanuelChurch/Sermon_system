@@ -5,10 +5,11 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { compressAudioFileClient } from '@/lib/audio-processing';
 import { uploadFileInChunks } from '@/lib/upload-helpers';
+import { uploadAudioToSupabase } from '@/lib/supabase-storage';
 
 type UploadStep = 
   | 'idle' 
-  | 'compressing' 
+  | 'compression' 
   | 'uploading' 
   | 'processing'
   | 'transcribing'
@@ -158,10 +159,10 @@ export default function UploadPage() {
   } = useProcessingSimulation();
 
   // Helper function to update progress state
-  const updateProgress = (step: UploadStep, details: string = '', progress: number = 0) => {
+  const updateProgress = (step: UploadStep, detail: string, value: number) => {
     setCurrentStep(step);
-    setStepDetails(details);
-    setUploadProgress(progress);
+    setStepDetails(detail);
+    setUploadProgress(value);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -185,26 +186,19 @@ export default function UploadPage() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     
-    if (!title || !speaker || !date) {
-      setError('Please fill in all fields');
-      return;
+    if (isCompressing) {
+      return; // Prevent multiple submissions
     }
     
-    if (!isUrlInput && !file) {
-      setError('Please select an audio file');
-      return;
-    }
-    
-    if (isUrlInput && !audioUrl) {
-      setError('Please enter a valid audio URL');
-      return;
-    }
+    setError('');
     
     try {
-      setIsLoading(true);
-      setError(null);
+      // Set uploading state
+      setIsCompressing(true);
+      setCurrentStep('compression');
+      setCompressionProgress('Compressing audio file...');
       
-      // Create form data for the upload
+      // Collect form data
       const formDataValues: Record<string, string> = {
         title,
         speaker,
@@ -215,105 +209,30 @@ export default function UploadPage() {
         podcastPlatform,
       };
       
-      // For URL-based uploads, use the standard API
-      if (isUrlInput) {
-        updateProgress('uploading', 'Preparing to upload from URL...', 40);
-        
-        const formData = new FormData();
-        Object.entries(formDataValues).forEach(([key, value]) => {
-          formData.append(key, value);
-        });
-        formData.append('audioUrl', audioUrl);
-        
-        const response = await fetch('/api/sermons', {
-          method: 'POST',
-          body: formData,
-        });
-        
-        if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || 'Failed to upload sermon');
-        }
-        
-        const data = await response.json();
-        
-        // Show fake processing steps and redirect
-        updateProgress('processing', 'Processing audio...', 70);
-        simulateProcessing(() => {
-          updateProgress('completed', 'Upload and processing completed successfully!', 100);
-          
-          setTimeout(() => {
-            router.push(`/dashboard/sermons/${data.id}`);
-          }, 1000);
-        });
-      } 
-      // For file uploads, use the chunked upload approach
-      else if (file) {
-        let audioFileToUpload = file;
-        
-        // Compress large audio files on the client side before uploading
-        if (file.size > 10 * 1024 * 1024) {
-          setIsCompressing(true);
-          updateProgress('compressing', 'Compressing audio file before upload...', 10);
-          setCompressionProgress('Compressing audio file before upload...');
-          
-          try {
-            audioFileToUpload = await compressAudioFileClient(file);
-            
-            const originalSizeMB = (file.size / (1024 * 1024)).toFixed(2);
-            const compressedSizeMB = (audioFileToUpload.size / (1024 * 1024)).toFixed(2);
-            const reductionPercent = Math.round((1 - audioFileToUpload.size / file.size) * 100);
-            
-            const compressionMsg = `Compression complete: ${originalSizeMB} MB → ${compressedSizeMB} MB (${reductionPercent}% reduction)`;
-            setCompressionProgress(compressionMsg);
-            updateProgress('compressing', compressionMsg, 30);
-          } catch (compressError) {
-            console.error('Compression failed, using original file:', compressError);
-            setCompressionProgress('Compression failed, using original file');
-            updateProgress('compressing', 'Compression failed, continuing with original file', 30);
-          } finally {
-            setIsCompressing(false);
-          }
-        }
-        
-        // Start chunked upload process
-        updateProgress('uploading', 'Preparing file for chunked upload...', 35);
+      // URL-based upload
+      if (isUrlInput && audioUrl) {
+        updateProgress('uploading', 'Fetching audio from URL...', 30);
         
         try {
-          // Display chunk information
-          const totalChunks = Math.ceil(audioFileToUpload.size / (4 * 1024 * 1024));
-          setChunkDetails({
-            totalChunks,
-            currentChunk: 0,
-            isUploading: true
-          });
-          updateProgress('uploading', `Splitting file into ${totalChunks} chunks for upload...`, 38);
-          
-          // Perform the chunked upload
-          const data = await uploadFileInChunks(
-            audioFileToUpload,
-            '/api/sermons',
-            formDataValues,
-            (progress) => {
-              // Map the chunk upload progress (0-100) to our 40-70% range
-              const mappedProgress = 40 + (progress * 0.3);
-              updateProgress('uploading', `Uploading chunks: ${progress}%`, mappedProgress);
+          const response = await fetch('/api/sermons/from-url', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
             },
-            (chunkIndex, totalChunks) => {
-              setChunkDetails(prev => ({
-                ...prev,
-                currentChunk: chunkIndex
-              }));
-              
-              updateProgress(
-                'uploading', 
-                `Uploaded chunk ${chunkIndex + 1}/${totalChunks} (${Math.round((chunkIndex + 1) / totalChunks * 100)}%)`, 
-                40 + ((chunkIndex + 1) / totalChunks * 30)
-              );
-            }
-          );
+            body: JSON.stringify({
+              url: audioUrl,
+              ...formDataValues,
+            }),
+          });
           
-          // Start processing simulation after successful upload
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to upload from URL');
+          }
+          
+          const data = await response.json();
+          
+          // Start processing simulation
           updateProgress('processing', 'Processing audio file...', 70);
           
           simulateProcessing(() => {
@@ -323,17 +242,92 @@ export default function UploadPage() {
               router.push(`/dashboard/sermons/${data.id}`);
             }, 1000);
           });
-        } catch (uploadError) {
-          console.error('Chunked upload failed:', uploadError);
-          throw uploadError;
+        } catch (error) {
+          console.error('URL upload error:', error);
+          setError(`Failed to upload from URL: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          setCurrentStep('error');
+          setIsCompressing(false);
         }
+        
+        return;
       }
-    } catch (err) {
-      console.error('Error uploading sermon:', err);
-      setError(err instanceof Error ? err.message : 'Failed to upload sermon');
-      updateProgress('error', err instanceof Error ? err.message : 'Failed to upload sermon');
-    } finally {
-      setIsLoading(false);
+      
+      // File upload
+      if (file) {
+        try {
+          // Compress the audio file first
+          updateProgress('compression', 'Compressing audio file...', 10);
+          const audioFileToUpload = await compressAudioFileClient(file);
+          
+          // Update progress
+          const compressionRatio = Math.round((1 - audioFileToUpload.size / file.size) * 100);
+          updateProgress(
+            'compression', 
+            `Compression complete: ${(audioFileToUpload.size / (1024 * 1024)).toFixed(2)} MB (${compressionRatio}% reduction)`, 
+            30
+          );
+          
+          // Switch to using Supabase storage for upload
+          updateProgress('uploading', 'Uploading to Supabase storage...', 40);
+          
+          // Upload the file to Supabase storage
+          const { url } = await uploadAudioToSupabase(
+            audioFileToUpload,
+            audioFileToUpload.name,
+            (progress) => {
+              // Map progress from 0-100 to our 40-70% range
+              const mappedProgress = 40 + (progress * 0.3);
+              updateProgress('uploading', `Uploading: ${progress}%`, mappedProgress);
+            }
+          );
+          
+          // File is uploaded, now create the sermon record
+          updateProgress('uploading', 'Upload complete, creating sermon record...', 70);
+          
+          // Create sermon record
+          const response = await fetch('/api/sermons', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              audioUrl: url,
+              ...formDataValues,
+            }),
+          });
+          
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to create sermon record');
+          }
+          
+          const data = await response.json();
+          
+          // Start processing simulation after successful upload
+          updateProgress('processing', 'Processing audio file...', 80);
+          
+          simulateProcessing(() => {
+            updateProgress('completed', 'Upload and processing completed successfully!', 100);
+            
+            setTimeout(() => {
+              router.push(`/dashboard/sermons/${data.id}`);
+            }, 1000);
+          });
+        } catch (uploadError) {
+          console.error('Upload failed:', uploadError);
+          setError(`Failed to upload: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}`);
+          setCurrentStep('error');
+          setIsCompressing(false);
+        }
+      } else {
+        setError('Please select a file to upload');
+        setIsCompressing(false);
+      }
+    } catch (error) {
+      console.error('Submission error:', error);
+      setError(`An unexpected error occurred: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setCurrentStep('error');
+      setIsCompressing(false);
     }
   };
 
@@ -342,7 +336,7 @@ export default function UploadPage() {
     if (currentStep === 'idle') return null;
     
     const steps = [
-      { key: 'compressing', label: 'Compression' },
+      { key: 'compression', label: 'Compression' },
       { key: 'uploading', label: 'Upload' },
       { key: 'processing', label: 'Processing' },
       { key: 'completed', label: 'Complete' }
