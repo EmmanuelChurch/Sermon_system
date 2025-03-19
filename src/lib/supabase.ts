@@ -5,84 +5,111 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
+// Fallback URL for Supabase - hardcoded as a last resort
+const FALLBACK_SUPABASE_URL = 'https://tdvvffdccfsvllwuueps.supabase.co';
+
 // Validate URLs
 function validateAndFormatUrl(url: string): string {
+  console.log('Raw Supabase URL from env:', url);
+  
   // Check if URL is empty
-  if (!url) {
-    throw new Error('Supabase URL is required');
+  if (!url || url.trim() === '') {
+    console.warn('Supabase URL is empty, using fallback URL');
+    return FALLBACK_SUPABASE_URL;
   }
 
   // Remove any control characters that might have been accidentally included
-  url = url.replace(/[\x00-\x1F\x7F]/g, '');
+  const cleanUrl = url
+    .replace(/[\x00-\x1F\x7F]/g, '') // Remove all control characters
+    .replace(/\^C/g, '')             // Explicitly remove ^C
+    .replace(/\r?\n|\r/g, '')        // Remove newlines
+    .trim();                         // Remove whitespace
+  
+  console.log('Cleaned URL:', cleanUrl);
 
   // Ensure URL starts with https:// (or http:// for local development)
-  if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    url = 'https://' + url;
+  let formattedUrl = cleanUrl;
+  if (!formattedUrl.startsWith('http://') && !formattedUrl.startsWith('https://')) {
+    formattedUrl = 'https://' + formattedUrl;
   }
-
+  
   try {
     // Test if URL is valid
-    new URL(url);
-    return url;
+    new URL(formattedUrl);
+    console.log('URL validated successfully:', formattedUrl);
+    return formattedUrl;
   } catch (error) {
-    console.error(`Invalid Supabase URL detected: ${url}`);
+    console.error(`Invalid Supabase URL detected after cleaning: ${formattedUrl}`, error);
     
-    // Special handling for the ^C control character case
-    if (url.includes('^C')) {
-      console.warn('Control character ^C detected in URL, removing it');
-      const cleanUrl = url.replace(/\^C/g, '');
-      try {
-        new URL(cleanUrl);
-        return cleanUrl;
-      } catch (e) {
-        console.warn('URL still invalid after removing ^C');
-      }
-    }
-    
-    // Try to extract project reference from environment variable
-    const envUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-    const projectRefMatch = envUrl.match(/([a-z0-9-]+)\.supabase\.co/);
-    const projectRef = projectRefMatch ? projectRefMatch[1] : null;
-    
-    if (projectRef) {
-      // Use the project reference to form a valid URL
+    // Extract project reference from the URL if possible
+    const projectRefMatch = formattedUrl.match(/([a-z0-9-]+)\.supabase\.co/);
+    if (projectRefMatch && projectRefMatch[1]) {
+      const projectRef = projectRefMatch[1];
       const fallbackUrl = `https://${projectRef}.supabase.co`;
-      console.warn(`Using fallback URL based on project reference: ${fallbackUrl}`);
+      console.warn(`Extracted project reference, using URL: ${fallbackUrl}`);
       return fallbackUrl;
     }
     
-    // Last resort fallback for Vercel builds - use a dummy URL that won't crash the build
-    // This won't work for API calls but will allow the build to complete
-    if (process.env.VERCEL === '1') {
-      console.warn('Using emergency fallback URL for Vercel build');
-      return 'https://example.supabase.co';
-    }
-    
-    throw new Error(`Cannot create valid Supabase URL from: ${url}`);
+    // Hard-coded fallback
+    console.warn(`Using hardcoded fallback URL: ${FALLBACK_SUPABASE_URL}`);
+    return FALLBACK_SUPABASE_URL;
   }
 }
 
 // Safely create clients with proper error handling
 function createSafeClient(url: string, key: string) {
   try {
+    if (!key || key.trim() === '') {
+      console.error('Supabase API key is empty');
+      throw new Error('Supabase API key is required');
+    }
+    
     // Format and validate the URL
     const validatedUrl = validateAndFormatUrl(url);
-    return createClient(validatedUrl, key);
+    
+    // Create the client with the validated URL and key
+    console.log(`Creating Supabase client with URL: ${validatedUrl.substring(0, 30)}...`);
+    const client = createClient(validatedUrl, key, {
+      auth: {
+        persistSession: false, // Don't persist session in browser
+        autoRefreshToken: true,
+        detectSessionInUrl: false,
+      }
+    });
+    
+    return client;
   } catch (error) {
     console.error('Failed to create Supabase client:', error);
+    
     // Create a dummy client that will throw clear errors when used
     // This prevents the application from crashing immediately during build
     return {
-      auth: {},
-      from: () => ({ select: () => Promise.reject(new Error('Invalid Supabase configuration')) }),
-      storage: { from: () => ({ upload: () => Promise.reject(new Error('Invalid Supabase configuration')) }) },
+      auth: {
+        signIn: () => Promise.reject(new Error('Invalid Supabase configuration')),
+        signOut: () => Promise.reject(new Error('Invalid Supabase configuration')),
+      },
+      from: () => ({ 
+        select: () => Promise.reject(new Error('Invalid Supabase configuration')),
+        insert: () => Promise.reject(new Error('Invalid Supabase configuration')),
+        update: () => Promise.reject(new Error('Invalid Supabase configuration')),
+        delete: () => Promise.reject(new Error('Invalid Supabase configuration')),
+      }),
+      storage: { 
+        from: () => ({ 
+          upload: () => Promise.reject(new Error('Invalid Supabase configuration')),
+          getPublicUrl: () => ({ data: { publicUrl: '' }}),
+          list: () => Promise.reject(new Error('Invalid Supabase configuration')),
+        }) 
+      },
       // Add other commonly used methods as needed
     } as any;
   }
 }
 
-// Create Supabase clients with proper error handling
+// Create Supabase clients with proper error handling and logging
+console.log('Initializing Supabase clients...');
 export const supabaseClient = createSafeClient(supabaseUrl, supabaseAnonKey);
 export const supabaseAdmin = createSafeClient(supabaseUrl, supabaseServiceRoleKey);
+console.log('Supabase clients initialized');
 
 export default supabaseClient; 
