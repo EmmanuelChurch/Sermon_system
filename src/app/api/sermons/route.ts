@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { saveSermon, saveAudioFile, getSermons } from '@/lib/local-storage';
-import { processSermonAudio, podcastVersionExists } from '@/lib/audio-processor';
 import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
@@ -8,7 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 export async function GET(request: NextRequest) {
   try {
     console.log('Fetching all sermons');
-    const sermons = getSermons();
+    const sermons = await getSermons();
     
     if (!sermons || !Array.isArray(sermons)) {
       console.error('No sermons found or invalid format', sermons);
@@ -41,12 +40,6 @@ export async function POST(request: NextRequest) {
     const date = formData.get('date') as string;
     const audioFile = formData.get('audioFile') as File;
     const audioUrl = formData.get('audioUrl') as string;
-    
-    // Get podcast options
-    const addIntroOutro = formData.get('addIntroOutro') === 'true';
-    const createPodcastVersion = formData.get('createPodcastVersion') === 'true';
-    const uploadToPodcast = formData.get('uploadToPodcast') === 'true';
-    const podcastPlatform = formData.get('podcastPlatform') as string;
     
     if (!title || !speaker || !date) {
       return NextResponse.json(
@@ -101,44 +94,6 @@ export async function POST(request: NextRequest) {
     };
     
     saveSermon(sermon);
-    
-    // Process podcast version if requested
-    if (audioFile && (addIntroOutro || createPodcastVersion)) {
-      try {
-        // Audio file path for local file
-        const filename = finalAudioUrl.split('/').pop();
-        if (!filename) throw new Error('Invalid audio filename');
-        
-        const audioFilePath = path.join(process.cwd(), 'local-storage', 'audio', filename);
-        
-        if (fs.existsSync(audioFilePath) && !podcastVersionExists(sermonId)) {
-          console.log(`Creating podcast version for sermon ${sermonId}...`);
-          
-          // Start podcast processing in the background
-          (async () => {
-            try {
-              await processSermonAudio(audioFilePath, sermonId);
-              console.log(`Podcast version created successfully for sermon ${sermonId}`);
-              
-              // Handle podcast platform upload if requested
-              if (uploadToPodcast && podcastPlatform && podcastPlatform !== 'none') {
-                try {
-                  console.log(`Would upload to ${podcastPlatform} here - implementation pending`);
-                  // TODO: Implement platform-specific upload logic here
-                } catch (uploadError) {
-                  console.error(`Error uploading to podcast platform: ${uploadError}`);
-                }
-              }
-            } catch (error) {
-              console.error(`Error creating podcast version: ${error}`);
-            }
-          })();
-        }
-      } catch (error) {
-        console.error('Error processing podcast version:', error);
-        // Don't fail the entire request if podcast processing fails
-      }
-    }
     
     return NextResponse.json({
       id: sermonId,

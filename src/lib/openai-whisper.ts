@@ -13,7 +13,7 @@ import { promises as fsPromises } from 'fs';
 import FormData from 'form-data';
 import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
-import { processSermonAudio, getPodcastFileUrl, podcastVersionExists } from './audio-processor';
+import { checkAudioFileExists } from './audio-processor';
 
 // Convert exec to Promise-based
 const execPromise = util.promisify(exec);
@@ -248,15 +248,17 @@ For other Linux distributions, please consult your package manager.
 }
 
 /**
- * Compress an audio file to make it smaller using fluent-ffmpeg
+ * Compress audio file to reduce its size
+ * Pass sermon ID if you want to process for podcast too
  */
-export async function compressAudioFile(inputPath: string, sermonId?: string, targetSizeBytes = MAX_FILE_SIZE): Promise<string> {
-  // Check if ffmpeg is available using our enhanced method
-  const isAvailable = await checkFfmpeg();
-  
-  if (!isAvailable) {
-    const instructions = await getFfmpegInstallInstructions();
-    throw new Error(`FFmpeg is not available for audio compression. ${instructions}`);
+export async function compressAudioFile(
+  inputPath: string,
+  sermonId?: string,
+  targetSizeBytes: number = MAX_FILE_SIZE
+): Promise<string> {
+  // First check if the file exists
+  if (!fs.existsSync(inputPath)) {
+    throw new Error(`Input file not found: ${inputPath}`);
   }
 
   // Get file size
@@ -266,24 +268,6 @@ export async function compressAudioFile(inputPath: string, sermonId?: string, ta
   // If file is already small enough, return the original path
   if (fileSizeBytes <= targetSizeBytes) {
     console.log(`File is already under ${targetSizeBytes / (1024 * 1024)}MB (${fileSizeBytes / (1024 * 1024)}MB), no compression needed`);
-    
-    // If sermonId is provided, process with intro/outro and normalize
-    if (sermonId) {
-      try {
-        // Check if podcast version already exists
-        if (podcastVersionExists(sermonId)) {
-          console.log(`Podcast version already exists for sermon ${sermonId}`);
-          return inputPath;
-        }
-        
-        console.log(`Processing sermon audio with intro/outro for sermon ${sermonId}`);
-        await processSermonAudio(inputPath, sermonId);
-      } catch (error) {
-        console.error('Error in podcast audio processing:', error);
-        // Continue with normal flow - don't fail the whole compression
-      }
-    }
-    
     return inputPath;
   }
   
@@ -309,7 +293,7 @@ export async function compressAudioFile(inputPath: string, sermonId?: string, ta
     // Calculate compression level based on file size
     // For files significantly over the limit, use more aggressive compression
     let targetBitrate = 96; // Default bitrate: 96kbps
-    let audioChannels = 1;  // Default: mono
+    const audioChannels = 1;  // Default: mono
     let sampleRate = 22050; // Default: 22.05 kHz
     
     // Calculate how much we need to compress
@@ -371,23 +355,6 @@ export async function compressAudioFile(inputPath: string, sermonId?: string, ta
                   if (fs.existsSync(secondPassPath)) {
                     const finalStats = fs.statSync(secondPassPath);
                     console.log(`Second pass compression: ${finalStats.size / (1024 * 1024)}MB`);
-                    
-                    // If sermonId is provided, process with intro/outro and normalize
-                    if (sermonId) {
-                      try {
-                        // Check if podcast version already exists
-                        if (podcastVersionExists(sermonId)) {
-                          console.log(`Podcast version already exists for sermon ${sermonId}`);
-                        } else {
-                          console.log(`Processing sermon audio with intro/outro for sermon ${sermonId}`);
-                          await processSermonAudio(secondPassPath, sermonId);
-                        }
-                      } catch (error) {
-                        console.error('Error in podcast audio processing:', error);
-                        // Continue with normal flow - don't fail the whole compression
-                      }
-                    }
-                    
                     resolve(secondPassPath);
                   } else {
                     // Use the first compressed version if second fails
@@ -396,22 +363,6 @@ export async function compressAudioFile(inputPath: string, sermonId?: string, ta
                 })
                 .save(secondPassPath);
             } else {
-              // If sermonId is provided, process with intro/outro and normalize
-              if (sermonId) {
-                try {
-                  // Check if podcast version already exists
-                  if (podcastVersionExists(sermonId)) {
-                    console.log(`Podcast version already exists for sermon ${sermonId}`);
-                  } else {
-                    console.log(`Processing sermon audio with intro/outro for sermon ${sermonId}`);
-                    await processSermonAudio(outputPath, sermonId);
-                  }
-                } catch (error) {
-                  console.error('Error in podcast audio processing:', error);
-                  // Continue with normal flow - don't fail the whole compression
-                }
-              }
-              
               resolve(outputPath);
             }
           } else {
@@ -433,7 +384,7 @@ export async function transcribeAudio(sermonId: string, audioUrl: string): Promi
   transcription: string;
   segments?: { start: number; end: number; text: string }[];
 }> {
-  let tempFilePaths: string[] = [];
+  const tempFilePaths: string[] = [];
   
   try {
     console.log(`Starting OpenAI Whisper transcription for sermon ${sermonId}`);
@@ -459,12 +410,12 @@ export async function transcribeAudio(sermonId: string, audioUrl: string): Promi
     
     console.log(`Audio file size: ${(fileSizeBytes / (1024 * 1024)).toFixed(2)}MB`);
     
-    // Compress if needed - pass sermonId to enable podcast processing
+    // Compress if needed
     let processedFilePath = audioFilePath;
     if (fileSizeBytes > MAX_FILE_SIZE) {
       console.log(`Audio file exceeds OpenAI's 25MB limit, attempting to compress...`);
       try {
-        processedFilePath = await compressAudioFile(audioFilePath, sermonId);
+        processedFilePath = await compressAudioFile(audioFilePath);
         tempFilePaths.push(processedFilePath);
         
         // Verify file is now under the size limit
@@ -477,18 +428,6 @@ export async function transcribeAudio(sermonId: string, audioUrl: string): Promi
       } catch (compressionError: any) {
         console.error('Compression failed:', compressionError);
         throw new Error(`Unable to process audio file: ${compressionError.message}`);
-      }
-    } else {
-      // If not compressed, we still want to process the audio for podcast
-      try {
-        // Check if podcast version already exists
-        if (!podcastVersionExists(sermonId)) {
-          console.log(`Processing sermon audio with intro/outro for sermon ${sermonId}`);
-          await processSermonAudio(audioFilePath, sermonId);
-        }
-      } catch (error) {
-        console.error('Error in podcast audio processing:', error);
-        // Continue with transcription - don't fail the whole process
       }
     }
     
@@ -560,7 +499,7 @@ export async function transcribeWithOpenAI(sermonId: string, audioUrl: string): 
     const { transcription } = await transcribeAudio(sermonId, audioUrl);
     return transcription;
   } catch (error) {
-    console.error(`Error in transcribeWithOpenAI for sermon ${sermonId}:`, error);
+    console.error('Error in transcribeWithOpenAI:', error);
     throw error;
   }
 } 

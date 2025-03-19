@@ -20,7 +20,7 @@ export default function DashboardSidebar() {
             <Link 
               href="/dashboard" 
               className={`flex items-center px-4 py-2 rounded-md ${
-                isActive('/dashboard') && !isActive('/dashboard/sermons') && !isActive('/dashboard/transcription-status') && !isActive('/dashboard/podcast')
+                isActive('/dashboard') && !isActive('/dashboard/sermons') && !isActive('/dashboard/transcription-status')
                   ? 'bg-gray-700' 
                   : 'hover:bg-gray-700'
               }`}
@@ -43,20 +43,6 @@ export default function DashboardSidebar() {
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
               </svg>
               Sermons
-            </Link>
-          </li>
-          
-          <li className="mb-1">
-            <Link 
-              href="/dashboard/podcast" 
-              className={`flex items-center px-4 py-2 rounded-md ${
-                isActive('/dashboard/podcast') ? 'bg-gray-700' : 'hover:bg-gray-700'
-              }`}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-3" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm0-14a1 1 0 011 1v5.268l4.562-2.634a1 1 0 111 1.732L10 12l-6.562-3.634a1 1 0 111-1.732L10 10.268V5a1 1 0 011-1z" clipRule="evenodd" />
-              </svg>
-              Podcast
             </Link>
           </li>
           
