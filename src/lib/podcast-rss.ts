@@ -52,9 +52,15 @@ export async function generatePodcastRSS(sermons: any[]) {
   const podcastImageUrl = `${baseUrl}/podcast-cover.jpg`;
   
   // Filter sermons with podcast versions
-  const podcastSermons = sermons.filter(sermon => 
-    sermon.podcastUrl || (sermon.id && await podcastVersionExists(sermon.id))
-  ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const podcastSermons = [];
+  for (const sermon of sermons) {
+    if (sermon.podcastUrl || (sermon.id && await podcastVersionExists(sermon.id))) {
+      podcastSermons.push(sermon);
+    }
+  }
+  
+  // Sort by date
+  podcastSermons.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   
   // Build items first
   const items = await Promise.all(podcastSermons.map(async (sermon) => {
