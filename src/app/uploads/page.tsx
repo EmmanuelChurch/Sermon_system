@@ -4,6 +4,7 @@ import { useState, useRef, FormEvent, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { compressAudioFileClient } from '@/lib/audio-processing';
+import { uploadFileInChunks } from '@/lib/upload-helpers';
 
 type UploadStep = 
   | 'idle' 
@@ -122,59 +123,6 @@ export default function UploadPage() {
     }
   };
 
-  // Custom upload function with progress tracking
-  const uploadWithProgress = async (formData: FormData): Promise<any> => {
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      
-      // Track upload progress
-      xhr.upload.addEventListener('progress', (event) => {
-        if (event.lengthComputable) {
-          // Calculate upload percentage and update progress
-          const percentComplete = Math.round((event.loaded / event.total) * 100);
-          // Map to our 40-70% range in the overall process
-          const mappedProgress = 40 + (percentComplete * 0.3);
-          setUploadProgress(mappedProgress);
-          setStepDetails(`Uploading... ${percentComplete}%`);
-        }
-      });
-      
-      // Handle completion
-      xhr.addEventListener('load', () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try {
-            const response = JSON.parse(xhr.responseText);
-            resolve(response);
-          } catch (error) {
-            reject(new Error('Invalid response format'));
-          }
-        } else {
-          try {
-            const errorData = JSON.parse(xhr.responseText);
-            reject(new Error(errorData.error || `Upload failed with status ${xhr.status}`));
-          } catch (e) {
-            reject(new Error(`Upload failed with status ${xhr.status}`));
-          }
-        }
-      });
-      
-      // Handle network errors
-      xhr.addEventListener('error', () => {
-        reject(new Error('Network error occurred during upload'));
-      });
-      
-      // Handle timeouts
-      xhr.addEventListener('timeout', () => {
-        reject(new Error('Upload timed out'));
-      });
-      
-      // Open and send request
-      xhr.open('POST', '/api/sermons', true);
-      xhr.timeout = 300000; // 5 minute timeout
-      xhr.send(formData);
-    });
-  };
-
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     
@@ -197,22 +145,51 @@ export default function UploadPage() {
       setIsLoading(true);
       setError(null);
       
-      // Create a FormData object to send the file
-      const formData = new FormData();
-      formData.append('title', title);
-      formData.append('speaker', speaker);
-      formData.append('date', date);
+      // Create form data for the upload
+      const formDataValues: Record<string, string> = {
+        title,
+        speaker,
+        date,
+        addIntroOutro: addIntroOutro.toString(),
+        createPodcastVersion: createPodcastVersion.toString(),
+        uploadToPodcast: uploadToPodcast.toString(),
+        podcastPlatform,
+      };
       
-      // Add advanced options
-      formData.append('addIntroOutro', addIntroOutro.toString());
-      formData.append('createPodcastVersion', createPodcastVersion.toString());
-      formData.append('uploadToPodcast', uploadToPodcast.toString());
-      formData.append('podcastPlatform', podcastPlatform);
-      
+      // For URL-based uploads, use the standard API
       if (isUrlInput) {
-        formData.append('audioUrl', audioUrl);
         updateProgress('uploading', 'Preparing to upload from URL...', 40);
-      } else if (file) {
+        
+        const formData = new FormData();
+        Object.entries(formDataValues).forEach(([key, value]) => {
+          formData.append(key, value);
+        });
+        formData.append('audioUrl', audioUrl);
+        
+        const response = await fetch('/api/sermons', {
+          method: 'POST',
+          body: formData,
+        });
+        
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || 'Failed to upload sermon');
+        }
+        
+        const data = await response.json();
+        
+        // Show fake processing steps and redirect
+        updateProgress('processing', 'Processing audio...', 70);
+        simulateProcessing(() => {
+          updateProgress('completed', 'Upload and processing completed successfully!', 100);
+          
+          setTimeout(() => {
+            router.push(`/dashboard/sermons/${data.id}`);
+          }, 1000);
+        });
+      } 
+      // For file uploads, use the chunked upload approach
+      else if (file) {
         let audioFileToUpload = file;
         
         // Compress large audio files on the client side before uploading
@@ -240,29 +217,45 @@ export default function UploadPage() {
           }
         }
         
-        formData.append('audioFile', audioFileToUpload);
-      }
-
-      // Start upload with progress tracking
-      updateProgress('uploading', 'Starting upload...', 40);
-      
-      // Use our custom upload function instead of fetch
-      const data = await uploadWithProgress(formData);
-      
-      // Start processing simulation after successful upload
-      updateProgress('processing', 'Processing started...', 70);
-      
-      simulateProcessing(() => {
-        // This will run when the simulation is complete
-        updateProgress('completed', 'Upload and processing completed successfully!', 100);
+        // Start chunked upload process
+        updateProgress('uploading', 'Preparing file for chunked upload...', 35);
         
-        // Short delay to show completion before redirect
-        setTimeout(() => {
-          // Redirect to the sermon detail page
-          router.push(`/dashboard/sermons/${data.id}`);
-        }, 1000);
-      });
-      
+        try {
+          // Display chunk information
+          const chunkSize = 4 * 1024 * 1024; // 4MB
+          const totalChunks = Math.ceil(audioFileToUpload.size / chunkSize);
+          updateProgress('uploading', `Splitting file into ${totalChunks} chunks for upload...`, 38);
+          
+          // Perform the chunked upload
+          const data = await uploadFileInChunks(
+            audioFileToUpload,
+            '/api/sermons',
+            formDataValues,
+            (progress) => {
+              // Map the chunk upload progress (0-100) to our 40-70% range
+              const mappedProgress = 40 + (progress * 0.3);
+              updateProgress('uploading', `Uploading chunks: ${progress}%`, mappedProgress);
+            },
+            (chunkIndex, totalChunks) => {
+              console.log(`Uploaded chunk ${chunkIndex + 1}/${totalChunks}`);
+            }
+          );
+          
+          // Start processing simulation after successful upload
+          updateProgress('processing', 'Processing audio file...', 70);
+          
+          simulateProcessing(() => {
+            updateProgress('completed', 'Upload and processing completed successfully!', 100);
+            
+            setTimeout(() => {
+              router.push(`/dashboard/sermons/${data.id}`);
+            }, 1000);
+          });
+        } catch (uploadError) {
+          console.error('Chunked upload failed:', uploadError);
+          throw uploadError;
+        }
+      }
     } catch (err) {
       console.error('Error uploading sermon:', err);
       setError(err instanceof Error ? err.message : 'Failed to upload sermon');
