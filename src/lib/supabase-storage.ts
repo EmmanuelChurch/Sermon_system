@@ -63,7 +63,7 @@ export async function uploadAudioToSupabase(
         const bucketName = 'sermons';
         
         // Build the direct upload URL using the access key
-        const uploadUrl = `${supabaseUrl}/object/${bucketName}/${uniquePath}`;
+        const uploadUrl = `${supabaseUrl}/storage/v1/object/${bucketName}/${uniquePath}`;
         
         // Perform the direct upload with fetch
         const response = await fetch(uploadUrl, {
