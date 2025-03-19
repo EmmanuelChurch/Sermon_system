@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -77,28 +77,33 @@ export async function GET(request: NextRequest) {
           'Cache-Control': 'public, max-age=3600'
         }
       });
-    } catch (downloadError: any) {
-      console.error('Error downloading from URL:', downloadError.message);
-      console.error('Response status:', downloadError.response?.status);
-      console.error('Response headers:', JSON.stringify(downloadError.response?.headers || {}));
+    } catch (downloadError: unknown) {
+      const axiosError = downloadError as AxiosError;
+      console.error('Error downloading from URL:', axiosError.message);
+      console.error('Response status:', axiosError.response?.status);
+      console.error('Response headers:', JSON.stringify(axiosError.response?.headers || {}));
       
       // Log more details about the error
-      if (downloadError.response) {
-        console.error('Response data:', downloadError.response.data?.toString().substring(0, 200) + '...');
+      if (axiosError.response) {
+        const responseData = axiosError.response.data as Buffer;
+        if (responseData) {
+          console.error('Response data:', responseData.toString().substring(0, 200) + '...');
+        }
       }
       
-      throw new Error(`Failed to download file from ${finalUrl}: ${downloadError.message}`);
+      throw new Error(`Failed to download file from ${finalUrl}: ${axiosError.message}`);
     }
-  } catch (error: any) {
-    console.error('Error proxying external URL:', error.message);
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error('Error proxying external URL:', err.message);
     
     // Return a detailed error response
     return NextResponse.json(
       { 
         error: 'Failed to proxy external file',
-        message: error.message,
+        message: err.message,
         url: request.nextUrl.searchParams.get('url'),
-        status: error.response?.status || 500
+        status: (error as AxiosError).response?.status || 500
       },
       { status: 500 }
     );

@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { ensureDirectoriesExist } from '@/lib/local-storage';
 
 // This route runs application startup checks
-export async function GET(request: NextRequest) {
+export async function GET() {
   console.log('Running application startup checks...');
   
   try {

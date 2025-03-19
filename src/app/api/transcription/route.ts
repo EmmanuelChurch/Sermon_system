@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { transcribeAudio } from '@/lib/openai-whisper';
-import path from 'path';
-import fs from 'fs';
 
 // Sample mock transcription data
 const MOCK_TRANSCRIPTION = {
@@ -253,7 +251,7 @@ export async function POST(request: Request) {
             updatedat: new Date().toISOString()
           })
           .eq('id', sermonId);
-          
+        
         processingJobs.set(transcriptionId, {
           sermonId,
           startTime,
@@ -262,18 +260,18 @@ export async function POST(request: Request) {
         });
       }
     })();
-
+    
     // Return success immediately, real transcription continues in background
-    console.log(`[${new Date().toISOString()}] Returning initial success response for ${sermonId}`);
+    console.log(`[${new Date().toISOString()}] Returning initial success response for ${sermonId} (real API)`);
     return NextResponse.json({
       message: 'Transcription started',
       mock: false,
       transcriptionId
     });
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error processing transcription:`, error);
+    console.error(`[${new Date().toISOString()}] Error processing transcription request:`, error);
     return NextResponse.json(
-      { error: 'Failed to process transcription request' },
+      { error: 'Internal server error processing transcription request' },
       { status: 500 }
     );
   }

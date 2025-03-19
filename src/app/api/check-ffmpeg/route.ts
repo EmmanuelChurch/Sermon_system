@@ -35,7 +35,7 @@ async function findFfmpegPath(): Promise<string | null> {
           console.log(`FFmpeg found in PATH: ${pathToCheck}`);
           return pathToCheck;
         }
-      } catch (err) {
+      } catch {
         // Command not found in PATH, continue to next option
       }
       continue;
@@ -47,7 +47,7 @@ async function findFfmpegPath(): Promise<string | null> {
         console.log(`FFmpeg found at: ${pathToCheck}`);
         return pathToCheck;
       }
-    } catch (err) {
+    } catch {
       // Error checking path, continue to next option
     }
   }
@@ -71,7 +71,7 @@ export async function GET() {
     if (ffmpegPath && ffmpegPath.includes('/')) {
       try {
         fileExists = fs.existsSync(ffmpegPath);
-      } catch (err) {
+      } catch {
         // Ignore errors
       }
     }
@@ -90,8 +90,8 @@ export async function GET() {
       } else {
         versionOutput = 'FFmpeg path not found';
       }
-    } catch (err: any) {
-      versionError = err.message || 'Unknown error';
+    } catch (error: unknown) {
+      versionError = error instanceof Error ? error.message : 'Unknown error';
     }
     
     // Get installation instructions
@@ -120,11 +120,11 @@ export async function GET() {
         FFMPEG_PATH: process.env.FFMPEG_PATH,
       }
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     return NextResponse.json({
       success: false,
-      error: error.message || 'Unknown error',
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: process.env.NODE_ENV === 'development' ? error instanceof Error ? error.stack : undefined : undefined
     }, { status: 500 });
   }
 } 

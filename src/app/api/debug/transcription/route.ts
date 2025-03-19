@@ -1,5 +1,13 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { processingJobs } from '../../transcription/route';
+
+interface ProcessingJob {
+  sermonId: string;
+  status: string;
+  startTime: number;
+  lastUpdate: number;
+}
 
 export async function GET() {
   try {
@@ -21,7 +29,7 @@ export async function GET() {
     }
     
     // For tracking active transcriptions
-    let activeTranscriptions: Array<{
+    const activeTranscriptions: Array<{
       id: string;
       status: string;
       progress: number;
@@ -30,7 +38,7 @@ export async function GET() {
     }> = [];
     
     // Get list of processing jobs
-    let processingJobs: Array<{
+    let processingJobsList: Array<{
       id: string;
       sermonId: string;
       status: string;
@@ -40,11 +48,10 @@ export async function GET() {
     }> = [];
     
     try {
-      const transcriptionModule = require('../../transcription/route');
-      if (transcriptionModule && transcriptionModule.processingJobs) {
-        processingJobs = Array.from(transcriptionModule.processingJobs.entries())
+      if (processingJobs) {
+        processingJobsList = Array.from(processingJobs.entries())
           .map(entry => {
-            const [id, job] = entry as [string, any];
+            const [id, job] = entry as [string, ProcessingJob];
             const startTime = new Date(job.startTime);
             const lastUpdate = new Date(job.lastUpdate);
             const durationMs = Date.now() - job.startTime;
@@ -94,7 +101,7 @@ export async function GET() {
     return NextResponse.json({
       sermons: data,
       activeTranscriptions,
-      processingJobs,
+      processingJobs: processingJobsList,
       serverInfo,
       timestamp: new Date().toISOString(),
       note: 'This endpoint shows the status of all recent sermons and any active transcription jobs'

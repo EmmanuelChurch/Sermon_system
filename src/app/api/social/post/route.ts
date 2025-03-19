@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSnippetsBySermonId, updateSnippet } from '@/lib/local-storage';
+import { Snippet } from '@/types';
 
 export async function POST(request: NextRequest) {
   try {
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest) {
     // Find the snippet in each sermon's snippets
     for (const sermon of sermons) {
       const snippets = getSnippetsBySermonId(sermon.id);
-      const foundSnippet = snippets.find((s: any) => s.id === snippetId);
+      const foundSnippet = snippets.find((s: Snippet) => s.id === snippetId);
       
       if (foundSnippet) {
         // In a real app, this is where you'd integrate with the social media platforms' APIs

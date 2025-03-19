@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { join } from 'path';
-import { statSync, createReadStream } from 'fs';
+import { statSync } from 'fs';
 import fs from 'fs';
 import path from 'path';
 

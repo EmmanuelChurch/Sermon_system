@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     // Test the connection by trying to access the public schema
     const { data, error } = await supabaseAdmin.from('sermons').select('count()', { count: 'exact' });

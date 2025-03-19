@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
 import { getSermonById, saveSermon, saveSnippets } from '@/lib/local-storage';
 import { generateSnippets } from '@/lib/openai';
-import { Snippet, SnippetsByPlatform } from '@/types';
+import { Snippet } from '@/types';
 
 export async function POST(
   request: NextRequest,
@@ -21,7 +21,7 @@ export async function POST(
     }
 
     // Get the sermon record from local storage
-    const sermon = getSermonById(sermonId);
+    const sermon = await getSermonById(sermonId);
 
     if (!sermon) {
       return NextResponse.json(
@@ -103,10 +103,10 @@ export async function POST(
       }
       
       // Save the snippets to local storage
-      saveSnippets(allSnippets);
+      await saveSnippets(allSnippets);
 
       // Update the sermon with a flag indicating snippets have been generated
-      saveSermon({
+      await saveSermon({
         ...sermon,
         has_snippets: true,
         updated_at: new Date().toISOString()

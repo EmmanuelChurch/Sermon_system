@@ -55,7 +55,7 @@ export async function POST(
         new URL(externalUrl);
         fileUrl = externalUrl;
         console.log(`Using external URL: ${fileUrl}`);
-      } catch (error) {
+      } catch {
         return NextResponse.json(
           { error: 'Invalid URL format' },
           { status: 400 }
@@ -83,7 +83,7 @@ export async function POST(
     }
     
     // Update the sermon record in Supabase
-    const { data, error } = await supabaseAdmin
+    const { error: updateError } = await supabaseAdmin
       .from('sermons')
       .update({
         audiourl: fileUrl,
@@ -91,10 +91,10 @@ export async function POST(
       })
       .eq('id', sermonId);
 
-    if (error) {
-      console.error('Failed to update sermon record:', error);
+    if (updateError) {
+      console.error('Failed to update sermon record:', updateError);
       return NextResponse.json(
-        { error: `Failed to update sermon record: ${error.message}` },
+        { error: `Failed to update sermon record: ${updateError.message}` },
         { status: 500 }
       );
     }
@@ -104,10 +104,10 @@ export async function POST(
       message: 'Sermon audio updated successfully',
       audioUrl: fileUrl
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error updating sermon audio:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to update sermon audio' },
+      { error: error instanceof Error ? error.message : 'Failed to update sermon audio' },
       { status: 500 }
     );
   }

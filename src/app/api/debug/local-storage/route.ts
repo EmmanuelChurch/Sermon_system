@@ -1,7 +1,18 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import { ensureDirectoriesExist, getSermons } from '@/lib/local-storage';
+
+interface Sermon {
+  id: string;
+  title: string;
+  speaker: string;
+  date: string;
+  audiourl: string;
+  transcriptionstatus: string;
+  created_at: string;
+  updated_at: string;
+}
 
 // Base directory for storing files and data
 const BASE_DIR = path.join(process.cwd(), 'local-storage');
@@ -9,7 +20,7 @@ const AUDIO_DIR = path.join(BASE_DIR, 'audio');
 const TRANSCRIPTIONS_DIR = path.join(BASE_DIR, 'transcriptions');
 const SERMON_DATA_FILE = path.join(BASE_DIR, 'sermons.json');
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     console.log('Debug: Checking local storage system');
     
@@ -43,17 +54,17 @@ export async function GET(request: NextRequest) {
     }
     
     // Read the sermons data file
-    let sermons: any[] = [];
+    let sermons: Sermon[] = [];
     if (sermonsFileExists) {
       try {
-        sermons = getSermons();
+        sermons = await getSermons();
       } catch (error) {
         console.error('Error reading sermons data:', error);
       }
     }
     
     // Get permissions info for directories
-    let permissions = {
+    const permissions = {
       base: 'unknown',
       audio: 'unknown',
       transcriptions: 'unknown',

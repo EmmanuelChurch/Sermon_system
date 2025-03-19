@@ -67,10 +67,10 @@ export async function POST(
       success: true,
       message: 'Transcription saved successfully',
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error saving transcription:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to save transcription' },
+      { error: error instanceof Error ? error.message : 'Failed to save transcription' },
       { status: 500 }
     );
   }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { saveSermon, saveAudioFile, getSermons } from '@/lib/local-storage';
 import { v4 as uuidv4 } from 'uuid';
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     console.log('Fetching all sermons');
     const sermons = await getSermons();

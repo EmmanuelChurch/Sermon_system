@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { transcribeWithOpenAI } from "@/lib/openai-whisper";
-import { Logger } from "@/lib/logger";
 import { getSermonById, updateSermonTranscriptionStatus } from "@/lib/local-storage";
-
-const logger = new Logger("transcribe-route");
 
 /**
  * Endpoint to transcribe a sermon
@@ -22,7 +19,7 @@ export async function POST(
     console.log(`Starting transcription for sermon ${sermonId}, useMock=${useMock}`);
     
     // Get the sermon from local storage
-    const sermon = getSermonById(sermonId);
+    const sermon = await getSermonById(sermonId);
     
     if (!sermon) {
       console.error(`Sermon not found: ${sermonId}`);
@@ -48,7 +45,7 @@ export async function POST(
       console.log(`Using mock transcription for sermon ${sermonId}`);
       
       // Update sermon with mock transcription
-      updateSermonTranscriptionStatus(
+      await updateSermonTranscriptionStatus(
         sermonId,
         'completed',
         'This is a mock transcription for testing purposes.'
@@ -65,7 +62,7 @@ export async function POST(
     console.log(`Starting real transcription for sermon ${sermonId}`);
     
     // Update status to processing
-    updateSermonTranscriptionStatus(sermonId, 'processing');
+    await updateSermonTranscriptionStatus(sermonId, 'processing');
     
     // Start transcription in background
     try {
@@ -77,31 +74,33 @@ export async function POST(
           console.log(`Transcription completed for sermon ${sermonId}`);
           
           // Update sermon with transcription
-          updateSermonTranscriptionStatus(sermonId, 'completed', transcript);
+          await updateSermonTranscriptionStatus(sermonId, 'completed', transcript);
         })
-        .catch(async (error) => {
-          console.error(`Transcription error for sermon ${sermonId}: ${error.message}`);
+        .catch(async (error: unknown) => {
+          const err = error instanceof Error ? error : new Error(String(error));
+          console.error(`Transcription error for sermon ${sermonId}: ${err.message}`);
           
           // Update sermon with error
-          updateSermonTranscriptionStatus(sermonId, 'failed', undefined, error.message || 'Unknown error');
+          await updateSermonTranscriptionStatus(sermonId, 'failed', undefined, err.message || 'Unknown error');
         });
       
       return NextResponse.json({
         success: true,
         message: 'Transcription started'
       });
-    } catch (error: any) {
-      console.error(`Error starting transcription: ${error.message}`);
+    } catch (error: unknown) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      console.error(`Error starting transcription: ${err.message}`);
       
       // Update sermon with error
-      updateSermonTranscriptionStatus(sermonId, 'failed', undefined, error.message || 'Unknown error');
+      await updateSermonTranscriptionStatus(sermonId, 'failed', undefined, err.message || 'Unknown error');
       
       return NextResponse.json(
-        { error: `Failed to start transcription: ${error.message}` },
+        { error: `Failed to start transcription: ${err.message}` },
         { status: 500 }
       );
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error in transcription endpoint:', error);
     return NextResponse.json(
       { error: 'Failed to process transcription request' },
