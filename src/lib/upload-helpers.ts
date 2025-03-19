@@ -129,6 +129,13 @@ export async function uploadFileInChunks(
             onChunkComplete(index, totalChunks);
           }
           
+          // If this is the last chunk, add a small delay before finalizing
+          // to ensure the server has fully processed it
+          if (index === totalChunks - 1) {
+            console.log('Last chunk uploaded, waiting before finalizing...');
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+          
         } catch (error) {
           retries++;
           console.error(`Error uploading chunk ${index + 1}/${totalChunks}:`, error);
@@ -168,9 +175,18 @@ export async function uploadFileInChunks(
     });
     
     let finalizeRetries = 0;
+    const MAX_FINALIZE_RETRIES = 5; // Increase max retries for finalization specifically
     
-    while (finalizeRetries < maxRetries) {
+    while (finalizeRetries < MAX_FINALIZE_RETRIES) {
       try {
+        console.log(`Finalizing upload, attempt ${finalizeRetries + 1}/${MAX_FINALIZE_RETRIES}...`);
+        
+        // Add a longer delay before first finalization attempt
+        if (finalizeRetries === 0) {
+          console.log('Waiting 2 seconds before first finalization attempt...');
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+        
         const finalizeResponse = await fetch(`${uploadUrl}/finalize`, {
           method: 'POST',
           body: finalizeFormData,
@@ -178,20 +194,33 @@ export async function uploadFileInChunks(
         
         if (!finalizeResponse.ok) {
           const errorData = await finalizeResponse.json();
-          throw new Error(errorData.error || 'Failed to finalize upload');
+          const errorMessage = errorData.error || 'Failed to finalize upload';
+          
+          // If we're getting "not all chunks received" but we uploaded all of them,
+          // wait longer and try again
+          if (errorMessage.includes('Not all chunks were received') && finalizeRetries < MAX_FINALIZE_RETRIES - 1) {
+            console.log('Server reports missing chunks despite uploading all chunks. Retrying after delay...');
+            await new Promise(resolve => setTimeout(resolve, 3000 * (finalizeRetries + 1)));
+            finalizeRetries++;
+            continue;
+          }
+          
+          throw new Error(errorMessage);
         }
         
         return finalizeResponse.json();
       } catch (error) {
         finalizeRetries++;
-        console.error(`Error finalizing upload (attempt ${finalizeRetries}/${maxRetries}):`, error);
+        console.error(`Error finalizing upload (attempt ${finalizeRetries}/${MAX_FINALIZE_RETRIES}):`, error);
         
-        if (finalizeRetries >= maxRetries) {
+        if (finalizeRetries >= MAX_FINALIZE_RETRIES) {
           throw error;
         }
         
-        // Wait a bit longer before retrying finalization
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Wait longer between retries, with increasing backoff
+        const delayMs = 2000 * finalizeRetries;
+        console.log(`Waiting ${delayMs}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
       }
     }
     

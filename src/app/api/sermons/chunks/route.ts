@@ -92,6 +92,34 @@ export async function POST(request: NextRequest) {
       // Add this chunk to received chunks if not already there
       if (!metadata.receivedChunks.includes(chunkIndex)) {
         metadata.receivedChunks.push(chunkIndex);
+        console.log(`Added chunk ${chunkIndex} to receivedChunks array, now have ${metadata.receivedChunks.length}/${totalChunks}`);
+      } else {
+        console.log(`Chunk ${chunkIndex} already in receivedChunks array`);
+      }
+      
+      // Double check that we save the last chunk
+      if (chunkIndex === totalChunks - 1) {
+        console.log(`Received last chunk (${chunkIndex}), ensuring it's properly tracked`);
+        
+        // Make absolutely sure the last chunk is in the received chunks array
+        if (!metadata.receivedChunks.includes(chunkIndex)) {
+          metadata.receivedChunks.push(chunkIndex);
+          console.log(`Added last chunk ${chunkIndex} to receivedChunks array`);
+        }
+        
+        // Verify the received chunks against total
+        console.log(`After last chunk, have ${metadata.receivedChunks.length}/${totalChunks} chunks`);
+        
+        // If we're still missing chunks, log which ones for debugging
+        if (metadata.receivedChunks.length < totalChunks) {
+          const missingChunks = [];
+          for (let i = 0; i < totalChunks; i++) {
+            if (!metadata.receivedChunks.includes(i)) {
+              missingChunks.push(i);
+            }
+          }
+          console.log(`Still missing chunks: ${missingChunks.join(', ')}`);
+        }
       }
       
       // Store form data from the first chunk
