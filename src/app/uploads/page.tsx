@@ -6,6 +6,8 @@ import Link from 'next/link';
 import { compressAudioFileClient } from '@/lib/audio-processing';
 import { uploadFileInChunks } from '@/lib/upload-helpers';
 import { uploadAudioToSupabase } from '@/lib/supabase-storage';
+import { initFFmpeg, compressAudio } from '@/lib/ffmpeg-handler';
+import { fetchFile } from '@ffmpeg/util';
 
 type UploadStep = 
   | 'idle' 
@@ -170,7 +172,7 @@ export default function UploadPage() {
     if (selectedFile) {
       setFile(selectedFile);
       setOriginalFileSize(selectedFile.size);
-      updateProgress('idle', 'File selected');
+      updateProgress('idle', 'File selected', 0);
       
       // Display file size info
       const fileSizeMB = (selectedFile.size / (1024 * 1024)).toFixed(2);
