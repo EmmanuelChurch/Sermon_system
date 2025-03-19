@@ -1,8 +1,16 @@
 import { Resend } from 'resend';
 import { Snippet } from '@/types';
 
-// Initialize Resend client
-const resend = new Resend(process.env.RESEND_API_KEY);
+/**
+ * Format a timestamp in seconds to a readable format (MM:SS)
+ */
+function formatTimestamp(seconds: number | undefined): string {
+  if (seconds === undefined) return '00:00';
+  
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = Math.floor(seconds % 60);
+  return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+}
 
 /**
  * Send an email notification with snippets for approval
@@ -19,6 +27,15 @@ export const sendSnippetApprovalEmail = async (
   approvalLink: string
 ) => {
   try {
+    const resendApiKey = process.env.RESEND_API_KEY;
+    
+    if (!resendApiKey) {
+      console.warn('Skipping email send: Missing Resend API key');
+      return null;
+    }
+    
+    const resend = new Resend(resendApiKey);
+    
     // Format the snippets for the email
     const snippetsHtml = snippets
       .map(
@@ -59,25 +76,14 @@ export const sendSnippetApprovalEmail = async (
     });
 
     if (error) {
+      console.error('Error sending email:', error);
       throw new Error(`Failed to send email: ${error.message}`);
     }
 
     return data;
   } catch (error) {
     console.error('Error sending email:', error);
-    throw error;
+    // Don't throw so the process can continue even if email fails
+    return null;
   }
-};
-
-/**
- * Format a timestamp in seconds to a readable format (MM:SS)
- * @param seconds The timestamp in seconds
- * @returns Formatted timestamp string
- */
-const formatTimestamp = (seconds: number): string => {
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = Math.floor(seconds % 60);
-  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
-};
-
-export default resend; 
+}; 

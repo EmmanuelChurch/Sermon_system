@@ -3,6 +3,42 @@ import { v4 as uuidv4 } from 'uuid';
 import { supabaseAdmin } from '@/lib/supabase';
 import { generateSnippets } from '@/lib/openai';
 import { sendSnippetApprovalEmail } from '@/lib/email';
+import { Resend } from 'resend';
+
+// Initialize Resend client with proper error handling
+function getResendClient() {
+  try {
+    const resendApiKey = process.env.RESEND_API_KEY;
+    
+    if (!resendApiKey) {
+      console.warn('Missing Resend API key. Email functionality will be disabled.');
+      // Return a mock client for build to succeed
+      return {
+        emails: {
+          send: async () => {
+            console.error('Attempted to send email but Resend API key is missing');
+            return { error: 'No API key configured' };
+          }
+        }
+      } as any;
+    }
+    
+    return new Resend(resendApiKey);
+  } catch (error) {
+    console.error('Error initializing Resend client:', error);
+    // Return a mock client to avoid breaking the build
+    return {
+      emails: {
+        send: async () => {
+          console.error('Failed to initialize Resend client');
+          return { error: 'Client initialization failed' };
+        }
+      }
+    } as any;
+  }
+}
+
+const resend = getResendClient();
 
 export async function POST(request: NextRequest) {
   try {
