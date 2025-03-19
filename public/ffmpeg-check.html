@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>FFmpeg Files Check</title>
+</head>
+<body>
+    <h1>FFmpeg Files Accessibility Check</h1>
+    
+    <div id="status">Checking file access...</div>
+    
+    <script>
+        async function checkFiles() {
+            const statusElement = document.getElementById('status');
+            const files = [
+                '/ffmpeg-core.js',
+                '/ffmpeg-core.wasm'
+            ];
+            
+            let allOk = true;
+            const results = [];
+            
+            for (const file of files) {
+                try {
+                    const response = await fetch(file);
+                    if (response.ok) {
+                        results.push(`✅ ${file}: Accessible (${response.status})`);
+                    } else {
+                        results.push(`❌ ${file}: Not accessible (${response.status})`);
+                        allOk = false;
+                    }
+                } catch (error) {
+                    results.push(`❌ ${file}: Error: ${error.message}`);
+                    allOk = false;
+                }
+            }
+            
+            statusElement.innerHTML = `
+                <h2>${allOk ? '✅ All files accessible' : '❌ Some files not accessible'}</h2>
+                <pre>${results.join('\n')}</pre>
+            `;
+        }
+        
+        checkFiles();
+    </script>
+</body>
+</html> 

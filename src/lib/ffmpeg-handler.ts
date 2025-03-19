@@ -26,10 +26,26 @@ export async function initFFmpeg(): Promise<FFmpeg> {
     console.log('Using base URL for FFmpeg core files:', baseURL);
     
     // Set configuration to use local files instead of CDN
-    await ffmpeg.load({
-      coreURL: `${baseURL}/ffmpeg-core.js`,
-      wasmURL: `${baseURL}/ffmpeg-core.wasm`,
-    });
+    try {
+      // First try with the full URL path
+      await ffmpeg.load({
+        coreURL: `${baseURL}/ffmpeg-core.js`,
+        wasmURL: `${baseURL}/ffmpeg-core.wasm`,
+      });
+    } catch (loadError) {
+      console.warn('Failed to load FFmpeg with full URL, trying relative path:', loadError);
+      
+      // Try with just the filename (relative path)
+      try {
+        await ffmpeg.load({
+          coreURL: '/ffmpeg-core.js',
+          wasmURL: '/ffmpeg-core.wasm',
+        });
+      } catch (relativeLoadError) {
+        console.error('Failed to load FFmpeg with relative path:', relativeLoadError);
+        throw relativeLoadError;
+      }
+    }
     
     console.log('FFmpeg loaded successfully');
     ffmpegInstance = ffmpeg;
