@@ -259,7 +259,21 @@ export default function UploadPage() {
         try {
           // Compress the audio file first
           updateProgress('compression', 'Compressing audio file...', 10);
-          const audioFileToUpload = await compressAudioFileClient(file);
+          
+          // Use our custom FFmpeg handler instead of the client function
+          let audioFileToUpload;
+          try {
+            const compressedBlob = await compressAudio(file);
+            audioFileToUpload = new File([compressedBlob], 
+              file.name.replace(/\.[^/.]+$/, "") + ".mp3", 
+              { type: "audio/mp3" }
+            );
+          } catch (compressionError) {
+            console.error('Compression error:', compressionError);
+            // Fallback to uncompressed file if compression fails
+            console.warn('Compression failed, using original file');
+            audioFileToUpload = file;
+          }
           
           // Update progress
           const compressionRatio = Math.round((1 - audioFileToUpload.size / file.size) * 100);

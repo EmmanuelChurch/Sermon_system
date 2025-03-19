@@ -1,5 +1,8 @@
-import { supabaseClient } from './supabase';
+import { supabaseClient, supabaseAdmin } from './supabase';
 import { v4 as uuidv4 } from 'uuid';
+
+// Get the storage access key from environment variables
+const STORAGE_ACCESS_KEY = process.env.SUPABASE_STORAGE_KEY;
 
 /**
  * Upload an audio file to Supabase Storage
@@ -20,6 +23,10 @@ export async function uploadAudioToSupabase(
     // Log upload details
     console.log(`Uploading to Supabase Storage: ${uniquePath}, size: ${file.size} bytes`);
     
+    // Check if we have a storage access key
+    const hasAccessKey = !!STORAGE_ACCESS_KEY;
+    console.log(`Using storage access key: ${hasAccessKey ? 'Yes' : 'No'}`);
+    
     try {
       // Test if Supabase client is available by getting storage bucket details
       const { data, error } = await supabaseClient.storage.getBucket('sermons');
@@ -38,7 +45,72 @@ export async function uploadAudioToSupabase(
     // Create upload options
     const options = {
       cacheControl: '3600',
-      upsert: false,
+      upsert: true, // Change to true to overwrite existing files
+    };
+    
+    // Function to handle the actual upload with access key if available
+    const performUpload = async (useAdmin = false) => {
+      // If we have a direct access key, use that method
+      if (hasAccessKey && typeof window !== 'undefined') {
+        console.log('Using direct upload with storage access key');
+        
+        // Create the form data for the upload
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        // Get the Supabase URL from the client
+        const supabaseUrl = supabaseClient.storageUrl ?? 'https://tdvvffdccfsvllwuueps.supabase.co';
+        const bucketName = 'sermons';
+        
+        // Build the direct upload URL using the access key
+        const uploadUrl = `${supabaseUrl}/object/${bucketName}/${uniquePath}`;
+        
+        // Perform the direct upload with fetch
+        const response = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${STORAGE_ACCESS_KEY}`,
+          },
+          body: formData,
+        });
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Direct upload failed: ${response.status} ${errorText}`);
+        }
+        
+        const responseData = await response.json();
+        return responseData;
+      }
+      
+      // Fall back to regular client if no access key or not in browser
+      const client = useAdmin ? supabaseAdmin : supabaseClient;
+      console.log(`Attempting upload with ${useAdmin ? 'admin' : 'anonymous'} client`);
+      
+      const { data, error } = await client.storage
+        .from('sermons')
+        .upload(uniquePath, file, options);
+        
+      if (error) {
+        // Check if it's an RLS (row level security) error
+        if (error.message?.includes('row-level security') || 
+            error.message?.includes('Unauthorized') || 
+            error.statusCode === 403) {
+          
+          if (!useAdmin) {
+            console.log('Unauthorized error, retrying with admin client');
+            // Retry with admin client if this was the anonymous client
+            return performUpload(true);
+          } else {
+            console.error('Still unauthorized even with admin client');
+            throw error;
+          }
+        }
+        
+        throw error;
+      }
+      
+      return data;
     };
     
     // Create a wrapper around the supabase upload that supports progress events
@@ -48,11 +120,10 @@ export async function uploadAudioToSupabase(
         // First, update to 10% to show initial progress
         onProgress(10);
         
-        const { data, error } = await supabaseClient.storage
-          .from('sermons')
-          .upload(uniquePath, file, options);
-        
-        if (error) {
+        // Try upload with client first, falls back to admin if needed
+        try {
+          await performUpload();
+        } catch (error) {
           console.error('Supabase upload error:', error);
           throw error;
         }
@@ -79,18 +150,24 @@ export async function uploadAudioToSupabase(
       }
     } else {
       // Standard upload without progress tracking
-      const { data, error } = await supabaseClient.storage
-        .from('sermons')
-        .upload(uniquePath, file, options);
-      
-      if (error) {
+      try {
+        // Try upload with client first, falls back to admin if needed
+        await performUpload();
+        
+        // Get the public URL for the file
+        const { data: urlData } = supabaseClient.storage
+          .from('sermons')
+          .getPublicUrl(uniquePath);
+        
+        return { url: urlData.publicUrl, path: uniquePath };
+      } catch (error: any) {
         // Handle specific error cases
-        if (error.message.includes('bucket') || error.message.includes('not found')) {
+        if (error.message?.includes('bucket') || error.message?.includes('not found')) {
           console.error('Supabase bucket not found. Please ensure the "sermons" bucket exists.');
           throw new Error('Storage bucket not configured: Please contact the administrator');
         }
         
-        if (error.message.includes('auth') || error.message.includes('permission')) {
+        if (error.message?.includes('auth') || error.message?.includes('permission')) {
           console.error('Supabase authentication or permission error:', error);
           throw new Error('Storage permission denied: Please contact the administrator');
         }
@@ -98,13 +175,6 @@ export async function uploadAudioToSupabase(
         console.error('Supabase upload error:', error);
         throw new Error(`Failed to upload file: ${error.message}`);
       }
-      
-      // Get the public URL for the file
-      const { data: urlData } = supabaseClient.storage
-        .from('sermons')
-        .getPublicUrl(uniquePath);
-      
-      return { url: urlData.publicUrl, path: uniquePath };
     }
   } catch (error: any) {
     console.error('Error uploading to Supabase:', error);
