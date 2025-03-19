@@ -12,6 +12,9 @@ const STORED_SERVICE_KEY = supabaseServiceRoleKey;
 // Use a hardcoded key for testing - you can replace this with your key for testing
 const FALLBACK_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkdnZmZmRjY2Zzdmxsd3V1ZXBzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDIyMDM3NjYsImV4cCI6MjA1Nzc3OTc2Nn0.U5SYsqHNCn40DsLENPFCLrQTlIWNeD7GKAHLPDuXDGk';
 
+// Service role fallback for development environment
+const FALLBACK_SERVICE_ROLE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkdnZmZmRjY2Zzdmxsd3V1ZXBzIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0MjIwMzc2NiwiZXhwIjoyMDU3Nzc5NzY2fQ.qvqTGZ7j0jNOTcl-Onb72ZLX4G-y7_VCeR81XKTI1Yk';
+
 // Fallback URL for Supabase - hardcoded as a last resort
 const FALLBACK_SUPABASE_URL = 'https://tdvvffdccfsvllwuueps.supabase.co';
 
@@ -73,10 +76,15 @@ function createSafeClient(url: string, key: string, isAdmin = false) {
       console.log(`Using stored ${isAdmin ? 'service' : 'anon'} key instead of empty key`);
     }
     
-    // If still empty, use fallback for anon key (only in production)
-    if ((!effectiveKey || effectiveKey.trim() === '') && !isAdmin) {
-      console.log('Using fallback anon key as last resort');
-      effectiveKey = FALLBACK_SUPABASE_ANON_KEY;
+    // If still empty, use fallback keys
+    if (!effectiveKey || effectiveKey.trim() === '') {
+      if (isAdmin) {
+        console.log('Using fallback service role key as last resort');
+        effectiveKey = FALLBACK_SERVICE_ROLE_KEY;
+      } else {
+        console.log('Using fallback anon key as last resort');
+        effectiveKey = FALLBACK_SUPABASE_ANON_KEY;
+      }
     }
 
     // Add detailed debugging about the key
@@ -150,11 +158,20 @@ function createSafeClient(url: string, key: string, isAdmin = false) {
         delete: () => Promise.reject(new Error('Invalid Supabase configuration')),
       }),
       storage: { 
-        from: () => ({ 
-          upload: () => Promise.reject(new Error('Invalid Supabase configuration')),
-          getPublicUrl: () => ({ data: { publicUrl: '' }}),
-          list: () => Promise.reject(new Error('Invalid Supabase configuration')),
-        }) 
+        from: (bucketName: string) => {
+          console.error(`Attempted to access storage bucket "${bucketName}" with invalid configuration`);
+          return {
+            upload: (path: string, data: File | Blob | ArrayBuffer | ArrayBufferView | string) => {
+              console.error(`Upload attempted with invalid configuration to ${bucketName}/${path}`);
+              return Promise.reject(new Error(`Upload failed: Invalid Supabase configuration`));
+            },
+            getPublicUrl: (path: string) => {
+              console.warn(`Getting public URL with invalid configuration for ${bucketName}/${path}`);
+              return { data: { publicUrl: '' }};
+            },
+            list: () => Promise.reject(new Error('Invalid Supabase configuration')),
+          };
+        }
       },
       // Add other commonly used methods as needed
     } as any;
