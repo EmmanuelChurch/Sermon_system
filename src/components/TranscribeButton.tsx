@@ -163,8 +163,8 @@ Download the compressed file by clicking the link below, then use "Choose File" 
                 <div className={`flex items-start ${activeStep === 'checking' || activeStep === 'processing' || activeStep === 'complete' ? 'text-blue-600' : 'text-gray-400'}`}>
                   <div className={`flex-shrink-0 h-5 w-5 rounded-full flex items-center justify-center mr-3 ${activeStep === 'checking' ? 'bg-blue-500' : activeStep === 'processing' || activeStep === 'complete' ? 'bg-green-500' : 'bg-gray-200'}`}>
                     {activeStep === 'processing' || activeStep === 'complete' ? (
-                      <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                      <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={'M5 13l4 4L19 7'} />
                       </svg>
                     ) : (
                       <span className="text-white text-xs">1</span>
@@ -179,8 +179,8 @@ Download the compressed file by clicking the link below, then use "Choose File" 
                 <div className={`flex items-start ${activeStep === 'processing' || activeStep === 'complete' ? 'text-blue-600' : 'text-gray-400'}`}>
                   <div className={`flex-shrink-0 h-5 w-5 rounded-full flex items-center justify-center mr-3 ${activeStep === 'processing' ? 'bg-blue-500' : activeStep === 'complete' ? 'bg-green-500' : 'bg-gray-200'}`}>
                     {activeStep === 'complete' ? (
-                      <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                      <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={'M5 13l4 4L19 7'} />
                       </svg>
                     ) : (
                       <span className="text-white text-xs">2</span>
@@ -205,8 +205,8 @@ Download the compressed file by clicking the link below, then use "Choose File" 
                 {activeStep === 'error' && (
                   <div className="flex items-start text-red-600">
                     <div className="flex-shrink-0 h-5 w-5 rounded-full bg-red-500 flex items-center justify-center mr-3">
-                      <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={'M6 18L18 6M6 6l12 12'} />
                       </svg>
                     </div>
                     <div>

@@ -118,7 +118,7 @@ export default function RecordingsPage() {
     <div className="container mx-auto py-10 px-4">
       <div className="mb-6">
         <Link href="/dashboard" className="text-blue-500 hover:underline">
-          &larr; Back to Dashboard
+          {'←'} Back to Dashboard
         </Link>
       </div>
       
@@ -126,7 +126,7 @@ export default function RecordingsPage() {
       
       {files.length === 0 ? (
         <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded mb-4">
-          <p>No recording files found in the recordings directory. Please place your audio files in the "recordings" folder.</p>
+          <p>No recording files found in the recordings directory. Please place your audio files in the {'"'}recordings{'"'} folder.</p>
         </div>
       ) : (
         <div className="grid md:grid-cols-2 gap-8">
@@ -148,7 +148,7 @@ export default function RecordingsPage() {
                     </div>
                     {selectedFile === file.name && (
                       <svg className="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={'M5 13l4 4L19 7'} />
                       </svg>
                     )}
                   </li>

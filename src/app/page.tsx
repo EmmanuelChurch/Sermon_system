@@ -119,7 +119,7 @@ export default function HomePage() {
               <div>
                 <h3 className="font-medium text-gray-900">Review and approve</h3>
                 <p className="text-gray-600">
-                  You'll receive an email notification when snippets are ready. Review and approve
+                  You&apos;ll receive an email notification when snippets are ready. Review and approve
                   them in the dashboard.
                 </p>
               </div>

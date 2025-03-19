@@ -154,7 +154,7 @@ export default function SnippetApproval({
   return (
     <div className="w-full max-w-4xl mx-auto">
       <h2 className="text-2xl font-bold mb-6">
-        Approve Snippets for "{sermonTitle}"
+        Approve Snippets for {'"'}{sermonTitle}{'"'}
       </h2>
       
       {snippets.length === 0 ? (
@@ -330,14 +330,14 @@ function SnippetCard({
                 onClick={() => canPlayAudio && playFromTimestamp(snippet.timestamp || 0)}
                 title={canPlayAudio ? 'Click to play from this timestamp' : ''}
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                <svg className="w-10 h-10 text-white bg-blue-500 rounded-full p-2" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d={'M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z'} clipRule="evenodd" />
                 </svg>
                 {formatTimestamp(snippet.timestamp)}
               </span>
             )}
           </div>
-          <p className="text-lg font-medium mb-2">"{snippet.content}"</p>
+          <p className="text-lg font-medium mb-2">{'"'}{snippet.content}{'"'}</p>
           <div className="flex flex-wrap text-sm text-gray-600 gap-2">
             {snippet.format && (
               <span className="bg-gray-100 px-2 py-1 rounded">
