@@ -21,8 +21,15 @@ export async function initFFmpeg(): Promise<FFmpeg> {
       console.log(`[FFmpeg] ${message}`);
     });
 
-    // Load FFmpeg (this loads the WASM binary)
-    await ffmpeg.load();
+    // Configure specific locations for core files
+    const baseURL = window.location.origin;
+    console.log('Using base URL for FFmpeg core files:', baseURL);
+    
+    // Set configuration to use local files instead of CDN
+    ffmpeg.load({
+      coreURL: `${baseURL}/ffmpeg-core.js`,
+      wasmURL: `${baseURL}/ffmpeg-core.wasm`,
+    });
     
     console.log('FFmpeg loaded successfully');
     ffmpegInstance = ffmpeg;

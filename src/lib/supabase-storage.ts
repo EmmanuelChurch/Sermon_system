@@ -4,6 +4,48 @@ import { v4 as uuidv4 } from 'uuid';
 // Get the storage access key from environment variables
 const STORAGE_ACCESS_KEY = process.env.SUPABASE_STORAGE_KEY;
 
+// Function to ensure bucket exists
+async function ensureBucketExists(client: any, bucketName: string): Promise<boolean> {
+  console.log(`Ensuring bucket "${bucketName}" exists...`);
+  
+  try {
+    // Check if bucket exists
+    const { data: buckets, error: listError } = await client.storage.listBuckets();
+    
+    if (listError) {
+      console.error('Error listing buckets:', listError);
+      return false;
+    }
+    
+    // Check if our bucket is in the list
+    const bucketExists = buckets.some((bucket: any) => bucket.name === bucketName);
+    
+    if (bucketExists) {
+      console.log(`Bucket "${bucketName}" already exists.`);
+      return true;
+    }
+    
+    // Bucket doesn't exist, try to create it
+    console.log(`Bucket "${bucketName}" not found, attempting to create...`);
+    
+    const { data, error } = await client.storage.createBucket(bucketName, {
+      public: true,
+      fileSizeLimit: 52428800, // 50MB limit
+    });
+    
+    if (error) {
+      console.error(`Error creating bucket "${bucketName}":`, error);
+      return false;
+    }
+    
+    console.log(`Successfully created bucket "${bucketName}"`);
+    return true;
+  } catch (error) {
+    console.error(`Error ensuring bucket "${bucketName}" exists:`, error);
+    return false;
+  }
+}
+
 /**
  * Upload an audio file to Supabase Storage
  * @param file The audio file to upload (client-side File object)
@@ -19,6 +61,7 @@ export async function uploadAudioToSupabase(
   try {
     // Generate a unique file path
     const uniquePath = `${uuidv4()}/${fileName}`;
+    const bucketName = 'sermons';
     
     // Log upload details
     console.log(`Uploading to Supabase Storage: ${uniquePath}, size: ${file.size} bytes`);
@@ -26,6 +69,13 @@ export async function uploadAudioToSupabase(
     // Check if we have a storage access key
     const hasAccessKey = !!STORAGE_ACCESS_KEY;
     console.log(`Using storage access key: ${hasAccessKey ? 'Yes' : 'No'}`);
+    
+    // Ensure bucket exists (try with admin client first)
+    const bucketExists = await ensureBucketExists(supabaseAdmin, bucketName);
+    
+    if (!bucketExists) {
+      console.warn('Could not confirm bucket exists, proceeding anyway...');
+    }
     
     try {
       // Test if Supabase client is available by getting storage bucket details
@@ -60,7 +110,6 @@ export async function uploadAudioToSupabase(
         
         // Get the Supabase URL from the client
         const supabaseUrl = supabaseClient.storageUrl ?? 'https://tdvvffdccfsvllwuueps.supabase.co';
-        const bucketName = 'sermons';
         
         // Build the direct upload URL using the access key
         const uploadUrl = `${supabaseUrl}/storage/v1/object/${bucketName}/${uniquePath}`;
