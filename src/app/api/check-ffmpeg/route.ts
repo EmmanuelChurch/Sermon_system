@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
-import path from 'path';
 
 // Define the FFmpeg path finding function directly in this file for testing
 async function findFfmpegPath(): Promise<string | null> {

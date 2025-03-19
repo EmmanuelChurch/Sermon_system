@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import path from 'path';
 import fs from 'fs';
-import { transcribeWithWhisper } from '@/lib/whisper';
-import { transcribeWithOpenAI } from '@/lib/openai-whisper';
 import { transcribeWithLocalWhisper } from '@/lib/local-whisper';
 
 // Mock transcription function for development purposes
@@ -144,9 +142,10 @@ export async function POST(request: NextRequest) {
         console.log('Starting transcription with Local Whisper');
         transcription = await transcribeWithLocalWhisper(audioUrl);
         console.log('Transcription completed successfully. Length:', transcription?.length || 0);
-      } catch (error: any) {
-        console.error('Transcription error with Local Whisper:', error.message);
-        console.error('Error details:', error);
+      } catch (error: unknown) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        console.error('Transcription error with Local Whisper:', err.message);
+        console.error('Error details:', err);
         
         // Update sermon status to failed
         await supabaseAdmin
@@ -159,7 +158,7 @@ export async function POST(request: NextRequest) {
         
         return NextResponse.json({
           success: false,
-          error: `Transcription error: ${error.message}`,
+          error: `Transcription error: ${err.message}`,
         }, { status: 500 });
       }
 
@@ -184,8 +183,9 @@ export async function POST(request: NextRequest) {
         success: true,
         message: 'Transcription completed successfully',
       });
-    } catch (transcriptionError: any) {
-      console.error('Transcription error:', transcriptionError.message);
+    } catch (transcriptionError: unknown) {
+      const err = transcriptionError instanceof Error ? transcriptionError : new Error(String(transcriptionError));
+      console.error('Transcription error:', err.message);
       
       // Update the sermon status to 'failed' if transcription fails
       await supabaseAdmin
@@ -196,12 +196,13 @@ export async function POST(request: NextRequest) {
         })
         .eq('id', sermonId);
 
-      throw transcriptionError;
+      throw err;
     }
-  } catch (error: any) {
-    console.error('Error transcribing sermon:', error.message, error.stack);
+  } catch (error: unknown) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    console.error('Error transcribing sermon:', err.message, err.stack);
     return NextResponse.json(
-      { error: error.message || 'Failed to transcribe sermon' },
+      { error: err.message || 'Failed to transcribe sermon' },
       { status: 500 }
     );
   }

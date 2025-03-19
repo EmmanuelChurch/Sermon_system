@@ -2,33 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { saveSermon } from '@/lib/local-storage';
 import { v4 as uuidv4 } from 'uuid';
 
-/**
- * Convert a Dropbox share link to a direct download link
- * 
- * @param url Dropbox URL (e.g., https://www.dropbox.com/scl/fi/...)
- * @returns Direct download URL (e.g., https://dl.dropboxusercontent.com/scl/fi/...)
- */
-function convertDropboxUrl(url: string): string {
-  // Check if this is a Dropbox URL
-  if (url.includes('dropbox.com')) {
-    try {
-      // Parse the URL to get its components
-      const urlObj = new URL(url);
-      
-      // Extract the path without query parameters
-      const path = urlObj.pathname;
-      
-      // Create direct download URL
-      return `https://dl.dropboxusercontent.com${path}`;
-    } catch (error) {
-      console.error('Error converting Dropbox URL:', error);
-    }
-  }
-  
-  // Return the original URL if not a Dropbox URL or if conversion failed
-  return url;
-}
-
 export async function POST(request: NextRequest) {
   try {
     console.log('External URL sermon upload request received');
@@ -61,7 +34,7 @@ export async function POST(request: NextRequest) {
     };
     
     // Save the sermon to local storage
-    const savedSermon = saveSermon(sermon);
+    const savedSermon = await saveSermon(sermon);
     
     return NextResponse.json({
       success: true,

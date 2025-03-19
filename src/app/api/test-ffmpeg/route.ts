@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
-import path from 'path';
 
 const execPromise = promisify(exec);
 
@@ -19,7 +18,7 @@ export async function GET() {
     if (ffmpegPath.includes('/') || ffmpegPath.includes('\\')) {
       try {
         fileExists = fs.existsSync(ffmpegPath);
-      } catch (err) {
+      } catch {
         // Ignore errors
       }
     }
@@ -31,8 +30,8 @@ export async function GET() {
       const cmd = ffmpegPath.includes(' ') ? `"${ffmpegPath}" -version` : `${ffmpegPath} -version`;
       const result = await execPromise(cmd);
       versionOutput = result.stdout.substring(0, 300);
-    } catch (e: any) {
-      versionError = e.message;
+    } catch (e: unknown) {
+      versionError = e instanceof Error ? e.message : String(e);
     }
     
     return NextResponse.json({
@@ -44,10 +43,10 @@ export async function GET() {
         FFMPEG_PATH: process.env.FFMPEG_PATH,
       }
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error checking FFmpeg:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to check FFmpeg' },
+      { error: error instanceof Error ? error.message : 'Failed to check FFmpeg' },
       { status: 500 }
     );
   }

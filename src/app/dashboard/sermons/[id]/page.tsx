@@ -1,14 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { Sermon, Recording } from '@/types';
 import TranscribeButton from '@/components/TranscribeButton';
 import AudioFileInfo from '@/components/AudioFileInfo';
 
 export default function SermonDetailsPage() {
-  const router = useRouter();
   const params = useParams();
   const sermonId = params.id as string;
   

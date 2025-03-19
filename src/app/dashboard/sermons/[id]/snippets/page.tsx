@@ -1,14 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import SnippetApproval from '@/components/SnippetApproval';
 import { Sermon, Snippet } from '@/types';
 
 export default function SermonSnippetsPage() {
   const params = useParams();
-  const router = useRouter();
   const sermonId = params.id as string;
   
   const [sermon, setSermon] = useState<Sermon | null>(null);
