@@ -26,7 +26,7 @@ export async function initFFmpeg(): Promise<FFmpeg> {
     console.log('Using base URL for FFmpeg core files:', baseURL);
     
     // Set configuration to use local files instead of CDN
-    ffmpeg.load({
+    await ffmpeg.load({
       coreURL: `${baseURL}/ffmpeg-core.js`,
       wasmURL: `${baseURL}/ffmpeg-core.wasm`,
     });
