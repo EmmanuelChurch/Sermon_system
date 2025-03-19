@@ -43,69 +43,115 @@ export async function splitFileIntoChunks(file: File, chunkSize: number = MAX_CH
  * @param formData Additional form data to include with each chunk
  * @param onProgress Progress callback (0-100)
  * @param onChunkComplete Callback when a chunk is complete
+ * @param maxRetries Maximum number of retries per chunk
  */
 export async function uploadFileInChunks(
   file: File,
   uploadUrl: string,
   formData: Record<string, string>,
   onProgress: (progress: number) => void,
-  onChunkComplete?: (chunkIndex: number, totalChunks: number) => void
+  onChunkComplete?: (chunkIndex: number, totalChunks: number) => void,
+  maxRetries: number = 3
 ): Promise<any> {
   try {
     const { chunks, totalChunks, originalFileName, originalFileSize, fileType } = 
       await splitFileIntoChunks(file);
     
-    console.log(`Splitting file into ${totalChunks} chunks for upload`);
+    console.log(`Splitting file into ${totalChunks} chunks for upload, each ~${Math.round(file.size/totalChunks/1024)}KB`);
     
     // Generate a unique upload ID for this file
     const uploadId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
     
     let completedChunks = 0;
+    let failedChunks: number[] = [];
     const chunkResponses: any[] = [];
     
     // Upload each chunk sequentially
     for (const { chunk, index } of chunks) {
-      console.log(`Uploading chunk ${index + 1}/${totalChunks}`);
+      let retries = 0;
+      let success = false;
       
-      const chunkFormData = new FormData();
-      
-      // Add the chunk with metadata
-      chunkFormData.append('chunk', chunk, originalFileName);
-      chunkFormData.append('chunkIndex', index.toString());
-      chunkFormData.append('totalChunks', totalChunks.toString());
-      chunkFormData.append('uploadId', uploadId);
-      chunkFormData.append('originalFileName', originalFileName);
-      chunkFormData.append('originalFileSize', originalFileSize.toString());
-      chunkFormData.append('fileType', fileType);
-      
-      // Add additional form data
-      Object.entries(formData).forEach(([key, value]) => {
-        chunkFormData.append(key, value);
-      });
-      
-      // Upload this chunk
-      const response = await fetch(`${uploadUrl}/chunks`, {
-        method: 'POST',
-        body: chunkFormData,
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `Failed to upload chunk ${index + 1}/${totalChunks}`);
+      while (retries < maxRetries && !success) {
+        try {
+          console.log(`Uploading chunk ${index + 1}/${totalChunks} (${(chunk.size / 1024).toFixed(1)}KB)`);
+          
+          if (retries > 0) {
+            console.log(`Retry #${retries} for chunk ${index + 1}/${totalChunks}`);
+            onProgress(Math.round((completedChunks / totalChunks) * 100));
+          }
+          
+          const chunkFormData = new FormData();
+          
+          // Add the chunk with metadata
+          chunkFormData.append('chunk', chunk, originalFileName);
+          chunkFormData.append('chunkIndex', index.toString());
+          chunkFormData.append('totalChunks', totalChunks.toString());
+          chunkFormData.append('uploadId', uploadId);
+          chunkFormData.append('originalFileName', originalFileName);
+          chunkFormData.append('originalFileSize', originalFileSize.toString());
+          chunkFormData.append('fileType', fileType);
+          
+          // Add additional form data
+          Object.entries(formData).forEach(([key, value]) => {
+            chunkFormData.append(key, value);
+          });
+          
+          // Upload this chunk
+          const response = await fetch(`${uploadUrl}/chunks`, {
+            method: 'POST',
+            body: chunkFormData,
+          });
+          
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `Failed to upload chunk ${index + 1}/${totalChunks}`);
+          }
+          
+          const responseData = await response.json();
+          
+          // Verify the server received the chunk
+          if (!responseData.success) {
+            throw new Error(`Server reported failure for chunk ${index + 1}/${totalChunks}`);
+          }
+          
+          // Add the response for this chunk
+          chunkResponses.push(responseData);
+          
+          // Success!
+          success = true;
+          completedChunks++;
+          
+          // Calculate and report progress
+          const progress = Math.round((completedChunks / totalChunks) * 100);
+          onProgress(progress);
+          
+          if (onChunkComplete) {
+            onChunkComplete(index, totalChunks);
+          }
+          
+        } catch (error) {
+          retries++;
+          console.error(`Error uploading chunk ${index + 1}/${totalChunks}:`, error);
+          
+          if (retries >= maxRetries) {
+            console.error(`Failed to upload chunk ${index + 1}/${totalChunks} after ${maxRetries} retries`);
+            failedChunks.push(index);
+          }
+          
+          // Wait a short time before retrying
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
       }
       
-      const responseData = await response.json();
-      chunkResponses.push(responseData);
-      
-      completedChunks++;
-      
-      // Calculate and report progress
-      const progress = Math.round((completedChunks / totalChunks) * 100);
-      onProgress(progress);
-      
-      if (onChunkComplete) {
-        onChunkComplete(index, totalChunks);
+      // If we couldn't upload this chunk after all retries, track it
+      if (!success) {
+        failedChunks.push(index);
       }
+    }
+    
+    // Check for failed chunks
+    if (failedChunks.length > 0) {
+      throw new Error(`Failed to upload ${failedChunks.length} chunks: ${failedChunks.join(', ')}`);
     }
     
     console.log('All chunks uploaded, now finalizing...');
@@ -121,17 +167,35 @@ export async function uploadFileInChunks(
       finalizeFormData.append(key, value);
     });
     
-    const finalizeResponse = await fetch(`${uploadUrl}/finalize`, {
-      method: 'POST',
-      body: finalizeFormData,
-    });
+    let finalizeRetries = 0;
     
-    if (!finalizeResponse.ok) {
-      const errorData = await finalizeResponse.json();
-      throw new Error(errorData.error || 'Failed to finalize upload');
+    while (finalizeRetries < maxRetries) {
+      try {
+        const finalizeResponse = await fetch(`${uploadUrl}/finalize`, {
+          method: 'POST',
+          body: finalizeFormData,
+        });
+        
+        if (!finalizeResponse.ok) {
+          const errorData = await finalizeResponse.json();
+          throw new Error(errorData.error || 'Failed to finalize upload');
+        }
+        
+        return finalizeResponse.json();
+      } catch (error) {
+        finalizeRetries++;
+        console.error(`Error finalizing upload (attempt ${finalizeRetries}/${maxRetries}):`, error);
+        
+        if (finalizeRetries >= maxRetries) {
+          throw error;
+        }
+        
+        // Wait a bit longer before retrying finalization
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
     }
     
-    return finalizeResponse.json();
+    throw new Error('Failed to finalize upload after multiple attempts');
   } catch (error) {
     console.error('Error in chunked upload:', error);
     throw error;

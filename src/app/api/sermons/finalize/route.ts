@@ -22,33 +22,81 @@ export async function POST(request: NextRequest) {
       );
     }
     
+    // Log incoming request data
+    console.log(`Finalizing upload: ${uploadId}, expected chunks: ${totalChunks}`);
+    
     // Get the temp directory where chunks are stored
     const isVercel = process.env.VERCEL === '1';
     const tempBaseDir = isVercel ? '/tmp' : os.tmpdir();
     const chunksDir = path.join(tempBaseDir, 'sermon-chunks', uploadId);
     const metadataPath = path.join(chunksDir, 'metadata.json');
     
-    if (!fs.existsSync(chunksDir) || !fs.existsSync(metadataPath)) {
+    if (!fs.existsSync(chunksDir)) {
+      console.error(`Chunks directory not found: ${chunksDir}`);
       return NextResponse.json(
         { error: 'Upload session not found or expired' },
         { status: 404 }
       );
     }
     
+    if (!fs.existsSync(metadataPath)) {
+      console.error(`Metadata file not found: ${metadataPath}`);
+      return NextResponse.json(
+        { error: 'Upload metadata not found' },
+        { status: 404 }
+      );
+    }
+    
     // Load metadata
     const metadataContent = fs.readFileSync(metadataPath, 'utf-8');
-    const metadata = JSON.parse(metadataContent);
+    let metadata;
+    try {
+      metadata = JSON.parse(metadataContent);
+    } catch (error) {
+      console.error(`Error parsing metadata: ${error}`);
+      return NextResponse.json(
+        { error: 'Invalid metadata format' },
+        { status: 500 }
+      );
+    }
+    
+    console.log(`Metadata loaded, received chunks: ${metadata.receivedChunks.length}/${totalChunks}`);
     
     // Verify we have all chunks
     if (metadata.receivedChunks.length !== totalChunks) {
+      // Log the missing chunks for debugging
+      const receivedChunkIds = new Set(metadata.receivedChunks);
+      const missingChunks = [];
+      
+      for (let i = 0; i < totalChunks; i++) {
+        if (!receivedChunkIds.has(i)) {
+          missingChunks.push(i);
+        }
+      }
+      
+      console.error(`Missing chunks: ${missingChunks.join(', ')}`);
+      
       return NextResponse.json(
         { 
           error: 'Not all chunks were received',
           received: metadata.receivedChunks.length,
-          expected: totalChunks
+          expected: totalChunks,
+          missingChunks,
         },
         { status: 400 }
       );
+    }
+    
+    // Check each chunk file exists
+    for (let i = 0; i < totalChunks; i++) {
+      const chunkPath = path.join(chunksDir, `chunk-${i}`);
+      if (!fs.existsSync(chunkPath)) {
+        console.error(`Chunk file missing: ${chunkPath}`);
+        return NextResponse.json(
+          { error: `Chunk file ${i} is missing on the server` },
+          { status: 500 }
+        );
+      }
     }
     
     // Sort the received chunks array to make sure we reassemble in order
@@ -59,38 +107,57 @@ export async function POST(request: NextRequest) {
     
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
+      console.log(`Created output directory: ${outputDir}`);
     }
     
     const reassembledFilePath = path.join(outputDir, `${uploadId}-${originalFileName}`);
-    const outputStream = fs.createWriteStream(reassembledFilePath);
+    console.log(`Reassembling to: ${reassembledFilePath}`);
     
-    // Combine all chunks in order
-    for (let i = 0; i < totalChunks; i++) {
-      const chunkPath = path.join(chunksDir, `chunk-${i}`);
+    try {
+      // Use streams for efficient file handling
+      const outputStream = fs.createWriteStream(reassembledFilePath);
       
-      if (!fs.existsSync(chunkPath)) {
-        outputStream.close();
-        return NextResponse.json(
-          { error: `Missing chunk ${i}` },
-          { status: 500 }
-        );
+      // Combine all chunks in order
+      for (let i = 0; i < totalChunks; i++) {
+        const chunkPath = path.join(chunksDir, `chunk-${i}`);
+        console.log(`Reading chunk ${i} from ${chunkPath}`);
+        
+        // Check chunk file exists and has content
+        const chunkStats = fs.statSync(chunkPath);
+        if (chunkStats.size === 0) {
+          console.error(`Chunk ${i} is empty (0 bytes)`);
+          return NextResponse.json(
+            { error: `Chunk ${i} is empty` },
+            { status: 500 }
+          );
+        }
+        
+        // Append this chunk to the output file
+        const chunkData = fs.readFileSync(chunkPath);
+        outputStream.write(chunkData);
       }
       
-      // Append this chunk to the output file
-      const chunkData = fs.readFileSync(chunkPath);
-      outputStream.write(chunkData);
-    }
-    
-    outputStream.end();
-    
-    console.log(`Reassembled file saved to ${reassembledFilePath}`);
-    
-    // Wait for the file to be fully written
-    await new Promise<void>((resolve) => {
-      outputStream.on('finish', () => {
-        resolve();
+      // Finalize the file
+      outputStream.end();
+      
+      // Wait for the file to be fully written
+      await new Promise<void>((resolve, reject) => {
+        outputStream.on('finish', () => {
+          console.log(`File reassembly complete, size: ${fs.statSync(reassembledFilePath).size} bytes`);
+          resolve();
+        });
+        outputStream.on('error', (err) => {
+          console.error(`Error writing reassembled file: ${err}`);
+          reject(err);
+        });
       });
-    });
+    } catch (fileError) {
+      console.error(`Error during file reassembly: ${fileError}`);
+      return NextResponse.json(
+        { error: 'Failed to reassemble file chunks' },
+        { status: 500 }
+      );
+    }
     
     // Extract form data from the metadata
     const { title, speaker, date } = metadata.formData;
@@ -103,6 +170,7 @@ export async function POST(request: NextRequest) {
       const fileBuffer = fs.readFileSync(reassembledFilePath);
       
       const { url } = await saveAudioFile(fileBuffer, originalFileName, sermonId);
+      console.log(`Saved audio file with URL: ${url}`);
       
       // Save sermon data
       const sermon = {
@@ -117,9 +185,11 @@ export async function POST(request: NextRequest) {
       };
       
       await saveSermon(sermon);
+      console.log(`Sermon saved with ID: ${sermonId}`);
       
-      // Clean up temporary files
+      // Clean up temporary files - wrap in try/catch to continue even if cleanup fails
       try {
+        console.log(`Cleaning up temporary files from ${chunksDir}`);
         for (let i = 0; i < totalChunks; i++) {
           const chunkPath = path.join(chunksDir, `chunk-${i}`);
           if (fs.existsSync(chunkPath)) {

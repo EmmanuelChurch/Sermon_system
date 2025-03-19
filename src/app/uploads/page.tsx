@@ -65,6 +65,54 @@ function useProcessingSimulation() {
   };
 }
 
+// Add this component to display detailed chunk progress
+// Add at the top level, outside of the UploadPage component
+const ChunkProgressDisplay = ({ 
+  totalChunks, 
+  currentChunk, 
+  uploadProgress 
+}: { 
+  totalChunks: number; 
+  currentChunk: number; 
+  uploadProgress: number;
+}) => {
+  const chunks = Array.from({ length: totalChunks }, (_, i) => i);
+  
+  return (
+    <div className="mt-3 mb-2">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs text-gray-500">0%</span>
+        <span className="text-xs text-gray-500">Upload Progress</span>
+        <span className="text-xs text-gray-500">100%</span>
+      </div>
+      
+      <div className="flex space-x-1 mb-2">
+        {chunks.map(chunk => (
+          <div 
+            key={chunk}
+            className={`h-2 flex-1 rounded-sm ${
+              chunk < currentChunk 
+                ? 'bg-green-500' 
+                : chunk === currentChunk 
+                  ? 'bg-blue-500' 
+                  : 'bg-gray-200'
+            }`}
+            title={`Chunk ${chunk + 1} of ${totalChunks}`}
+          />
+        ))}
+      </div>
+      
+      <div className="text-center text-xs">
+        <span className="font-medium">
+          {currentChunk < totalChunks 
+            ? `Uploading chunk ${currentChunk + 1} of ${totalChunks} (${Math.round((currentChunk + 1) / totalChunks * 100)}% complete)`
+            : 'All chunks uploaded'}
+        </span>
+      </div>
+    </div>
+  );
+};
+
 export default function UploadPage() {
   const router = useRouter();
   const [title, setTitle] = useState('');
@@ -90,6 +138,17 @@ export default function UploadPage() {
   const [currentStep, setCurrentStep] = useState<UploadStep>('idle');
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [stepDetails, setStepDetails] = useState<string>('');
+
+  // Inside the UploadPage component, add these state variables:
+  const [chunkDetails, setChunkDetails] = useState<{
+    totalChunks: number;
+    currentChunk: number;
+    isUploading: boolean;
+  }>({
+    totalChunks: 0,
+    currentChunk: 0,
+    isUploading: false
+  });
 
   const {
     processingStep,
@@ -222,8 +281,12 @@ export default function UploadPage() {
         
         try {
           // Display chunk information
-          const chunkSize = 4 * 1024 * 1024; // 4MB
-          const totalChunks = Math.ceil(audioFileToUpload.size / chunkSize);
+          const totalChunks = Math.ceil(audioFileToUpload.size / (4 * 1024 * 1024));
+          setChunkDetails({
+            totalChunks,
+            currentChunk: 0,
+            isUploading: true
+          });
           updateProgress('uploading', `Splitting file into ${totalChunks} chunks for upload...`, 38);
           
           // Perform the chunked upload
@@ -237,7 +300,16 @@ export default function UploadPage() {
               updateProgress('uploading', `Uploading chunks: ${progress}%`, mappedProgress);
             },
             (chunkIndex, totalChunks) => {
-              console.log(`Uploaded chunk ${chunkIndex + 1}/${totalChunks}`);
+              setChunkDetails(prev => ({
+                ...prev,
+                currentChunk: chunkIndex
+              }));
+              
+              updateProgress(
+                'uploading', 
+                `Uploaded chunk ${chunkIndex + 1}/${totalChunks} (${Math.round((chunkIndex + 1) / totalChunks * 100)}%)`, 
+                40 + ((chunkIndex + 1) / totalChunks * 30)
+              );
             }
           );
           
@@ -298,6 +370,17 @@ export default function UploadPage() {
       if (currentStep === 'processing' && isSimulating) {
         return processingStep;
       }
+      
+      // For uploading step, check if we're handling chunks
+      if (currentStep === 'uploading' && stepDetails.includes('chunk')) {
+        // Make the chunk text more prominent
+        return (
+          <span className="font-medium">
+            {stepDetails}
+          </span>
+        );
+      }
+      
       return stepDetails;
     };
     
@@ -326,7 +409,7 @@ export default function UploadPage() {
           ))}
         </div>
         
-        <div className="w-full bg-gray-200 rounded-full h-2.5">
+        <div className="w-full bg-gray-200 rounded-full h-2.5 mb-2">
           <div 
             className={`h-2.5 rounded-full ${currentStep === 'error' ? 'bg-red-500' : 'bg-blue-500'}`} 
             style={{ width: `${calculateProgress()}%` }}
@@ -337,9 +420,26 @@ export default function UploadPage() {
           {currentStep === 'error' ? (
             <span className="text-red-500">{getDetailText()}</span>
           ) : (
-            <span>{getDetailText()}</span>
+            getDetailText()
           )}
         </div>
+        
+        {/* Add a detailed chunk counter if we're uploading chunks */}
+        {currentStep === 'uploading' && stepDetails.includes('chunk') && (
+          <div className="mt-2 text-xs text-gray-600 text-center">
+            The file is being uploaded in small chunks to bypass size limitations.
+            <br />This ensures even large files can be uploaded successfully.
+          </div>
+        )}
+        
+        {/* Add under the progress bar: */}
+        {currentStep === 'uploading' && chunkDetails.isUploading && chunkDetails.totalChunks > 0 && (
+          <ChunkProgressDisplay
+            totalChunks={chunkDetails.totalChunks}
+            currentChunk={chunkDetails.currentChunk}
+            uploadProgress={uploadProgress}
+          />
+        )}
       </div>
     );
   };
