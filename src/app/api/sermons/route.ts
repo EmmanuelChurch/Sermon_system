@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { saveSermon, saveAudioFile, getSermons } from '@/lib/local-storage';
-import path from 'path';
-import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 
 export async function GET(request: NextRequest) {
@@ -67,7 +65,7 @@ export async function POST(request: NextRequest) {
         const buffer = Buffer.from(arrayBuffer);
         const filename = audioFile.name;
         
-        const { url } = saveAudioFile(buffer, filename, sermonId);
+        const { url } = await saveAudioFile(buffer, filename, sermonId);
         finalAudioUrl = url;
       } catch (err) {
         console.error('Error saving audio file:', err);
@@ -93,7 +91,7 @@ export async function POST(request: NextRequest) {
       updated_at: new Date().toISOString(),
     };
     
-    saveSermon(sermon);
+    await saveSermon(sermon);
     
     return NextResponse.json({
       id: sermonId,

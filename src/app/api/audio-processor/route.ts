@@ -1,46 +1,22 @@
 import { NextResponse } from 'next/server';
-import { 
-  processSermonAudio, 
-  getPodcastFileUrl, 
-  podcastVersionExists, 
-  getPodcastFilePath 
-} from '@/lib/audio-processor';
+import { checkAudioFileExists } from '@/lib/audio-processor';
 
 export async function POST(request: Request) {
   try {
-    const { action, sermonId, inputAudioPath } = await request.json();
+    const { action, filePath } = await request.json();
     
     switch(action) {
-      case 'processAudio':
-        if (!sermonId || !inputAudioPath) {
-          return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 });
+      case 'checkExists':
+        if (!filePath) {
+          return NextResponse.json({ error: 'Missing filePath parameter' }, { status: 400 });
         }
-        const outputPath = await processSermonAudio(inputAudioPath, sermonId);
-        return NextResponse.json({ success: true, outputPath });
-        
-      case 'podcastExists':
-        if (!sermonId) {
-          return NextResponse.json({ error: 'Missing sermonId' }, { status: 400 });
-        }
-        const exists = podcastVersionExists(sermonId);
+        const exists = await checkAudioFileExists(filePath);
         return NextResponse.json({ exists });
         
-      case 'getPodcastUrl':
-        if (!sermonId) {
-          return NextResponse.json({ error: 'Missing sermonId' }, { status: 400 });
-        }
-        const url = getPodcastFileUrl(sermonId);
-        return NextResponse.json({ url });
-        
-      case 'getPodcastPath':
-        if (!sermonId) {
-          return NextResponse.json({ error: 'Missing filename' }, { status: 400 });
-        }
-        const path = getPodcastFilePath(sermonId);
-        return NextResponse.json({ path });
-        
       default:
-        return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+        return NextResponse.json({ 
+          error: 'Invalid action. Note: Podcast functionality has been removed.' 
+        }, { status: 400 });
     }
     
   } catch (error) {
