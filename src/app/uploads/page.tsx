@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useRef, FormEvent } from 'react';
+import { useState, useRef, FormEvent, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { compressAudioFileClient } from '@/lib/audio-processing';
 
 export default function UploadPage() {
   const router = useRouter();
@@ -22,6 +23,27 @@ export default function UploadPage() {
   const [createPodcastVersion, setCreatePodcastVersion] = useState(true);
   const [uploadToPodcast, setUploadToPodcast] = useState(false);
   const [podcastPlatform, setPodcastPlatform] = useState('none');
+
+  const [isCompressing, setIsCompressing] = useState(false);
+  const [compressionProgress, setCompressionProgress] = useState<string | null>(null);
+  const [originalFileSize, setOriginalFileSize] = useState<number | null>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0];
+    if (selectedFile) {
+      setFile(selectedFile);
+      setOriginalFileSize(selectedFile.size);
+      
+      // Display file size info
+      const fileSizeMB = (selectedFile.size / (1024 * 1024)).toFixed(2);
+      setCompressionProgress(`Selected file: ${selectedFile.name} (${fileSizeMB} MB)`);
+      
+      // Show compression message for large files
+      if (selectedFile.size > 10 * 1024 * 1024) {
+        setCompressionProgress(`File is large (${fileSizeMB} MB). It will be compressed before upload.`);
+      }
+    }
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -60,7 +82,32 @@ export default function UploadPage() {
       if (isUrlInput) {
         formData.append('audioUrl', audioUrl);
       } else if (file) {
-        formData.append('audioFile', file);
+        let audioFileToUpload = file;
+        
+        // Compress large audio files on the client side before uploading
+        if (file.size > 10 * 1024 * 1024) {
+          setIsCompressing(true);
+          setCompressionProgress('Compressing audio file before upload...');
+          
+          try {
+            audioFileToUpload = await compressAudioFileClient(file);
+            
+            const originalSizeMB = (file.size / (1024 * 1024)).toFixed(2);
+            const compressedSizeMB = (audioFileToUpload.size / (1024 * 1024)).toFixed(2);
+            const reductionPercent = Math.round((1 - audioFileToUpload.size / file.size) * 100);
+            
+            setCompressionProgress(
+              `Compression complete: ${originalSizeMB} MB → ${compressedSizeMB} MB (${reductionPercent}% reduction)`
+            );
+          } catch (compressError) {
+            console.error('Compression failed, using original file:', compressError);
+            setCompressionProgress('Compression failed, using original file');
+          } finally {
+            setIsCompressing(false);
+          }
+        }
+        
+        formData.append('audioFile', audioFileToUpload);
       }
       
       // Submit the form
@@ -153,75 +200,72 @@ export default function UploadPage() {
             />
           </div>
           
-          <div className="mb-6">
-            <div className="flex space-x-4 mb-4">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsUrlInput(false);
-                  setAudioUrl('');
-                }}
-                className={`px-4 py-2 rounded-md ${
-                  !isUrlInput 
-                    ? 'bg-blue-500 text-white' 
-                    : 'bg-gray-200 text-gray-700'
-                }`}
-              >
-                Upload File
-              </button>
-              
-              <button
-                type="button"
-                onClick={() => {
-                  setIsUrlInput(true);
-                  setFile(null);
-                  if (fileInputRef.current) {
-                    fileInputRef.current.value = '';
-                  }
-                }}
-                className={`px-4 py-2 rounded-md ${
-                  isUrlInput 
-                    ? 'bg-blue-500 text-white' 
-                    : 'bg-gray-200 text-gray-700'
-                }`}
-              >
-                Use URL
-              </button>
-            </div>
-            
+          <div className="mb-4">
+            <label className="block font-medium mb-1">Audio File</label>
             {isUrlInput ? (
-              <div>
-                <label htmlFor="audioUrl" className="block font-medium mb-1">Audio URL</label>
-                <input
-                  type="url"
-                  id="audioUrl"
-                  value={audioUrl}
-                  onChange={(e) => setAudioUrl(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                  placeholder="https://example.com/audio.mp3"
-                  required={isUrlInput}
-                />
-              </div>
+              <input
+                type="url"
+                value={audioUrl}
+                onChange={(e) => setAudioUrl(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                placeholder="Enter URL to audio file"
+                required={isUrlInput}
+              />
             ) : (
-              <div>
-                <label htmlFor="audioFile" className="block font-medium mb-1">Audio File</label>
+              <>
                 <input
                   type="file"
-                  id="audioFile"
                   ref={fileInputRef}
-                  onChange={(e) => {
-                    const files = e.target.files;
-                    if (files && files.length > 0) {
-                      setFile(files[0]);
-                    }
-                  }}
+                  onChange={handleFileChange}
+                  className="hidden"
                   accept="audio/*"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
                   required={!isUrlInput}
                 />
-                <p className="text-sm text-gray-500 mt-1">Select an audio file from your device</p>
+                <div className="flex">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-md mr-2"
+                  >
+                    {file ? 'Change File' : 'Upload File'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsUrlInput(true)}
+                    className="bg-gray-200 hover:bg-gray-300 text-gray-700 py-2 px-4 rounded-md"
+                  >
+                    Use URL
+                  </button>
+                </div>
+                {file && (
+                  <div className="mt-2 text-sm">
+                    Selected: {file.name}
+                  </div>
+                )}
+                {compressionProgress && (
+                  <div className="mt-2 text-sm text-gray-600">
+                    {compressionProgress}
+                  </div>
+                )}
+              </>
+            )}
+            {isUrlInput && (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsUrlInput(false);
+                    setAudioUrl('');
+                  }}
+                  className="text-sm text-blue-500 hover:text-blue-600"
+                >
+                  Switch to file upload
+                </button>
               </div>
             )}
+            <p className="text-xs text-gray-500 mt-1">
+              Supported formats: MP3, WAV, M4A. Large files will be automatically compressed.
+            </p>
           </div>
           
           {/* Advanced Options Section */}
@@ -323,22 +367,12 @@ export default function UploadPage() {
             
             <button
               type="submit"
-              disabled={isLoading}
-              className={`px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 flex items-center ${
-                isLoading ? 'opacity-70 cursor-not-allowed' : ''
+              disabled={isLoading || isCompressing}
+              className={`bg-green-500 text-white py-2 px-6 rounded-md font-medium ${
+                (isLoading || isCompressing) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-600'
               }`}
             >
-              {isLoading ? (
-                <>
-                  <svg className="animate-spin h-5 w-5 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d={'M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'}></path>
-                  </svg>
-                  Uploading...
-                </>
-              ) : (
-                'Upload Sermon'
-              )}
+              {isLoading ? 'Uploading...' : isCompressing ? 'Compressing...' : 'Upload Sermon'}
             </button>
           </div>
         </form>
