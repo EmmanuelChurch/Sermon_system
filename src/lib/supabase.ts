@@ -59,8 +59,22 @@ function validateAndFormatUrl(url: string): string {
 // Safely create clients with proper error handling
 function createSafeClient(url: string, key: string) {
   try {
-    if (!key || key.trim() === '') {
-      console.error('Supabase API key is empty');
+    // Clean the key of any control characters or whitespace
+    const cleanedKey = key.replace(/[\x00-\x1F\x7F]/g, '')
+                          .replace(/\^C/g, '')
+                          .replace(/\r?\n|\r/g, '')
+                          .trim();
+    
+    if (!cleanedKey || cleanedKey.trim() === '') {
+      console.error('Supabase API key is empty or contains only control characters');
+      
+      // In development, provide more detailed debugging
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Raw key length:', key.length);
+        console.log('Key contains control chars:', /[\x00-\x1F\x7F]/.test(key));
+        console.log('First few chars (if any):', key.substring(0, 5));
+      }
+      
       throw new Error('Supabase API key is required');
     }
     
@@ -69,7 +83,11 @@ function createSafeClient(url: string, key: string) {
     
     // Create the client with the validated URL and key
     console.log(`Creating Supabase client with URL: ${validatedUrl.substring(0, 30)}...`);
-    const client = createClient(validatedUrl, key, {
+    
+    // Log key length for debugging without exposing the key
+    console.log(`API key length: ${cleanedKey.length} characters`);
+    
+    const client = createClient(validatedUrl, cleanedKey, {
       auth: {
         persistSession: false, // Don't persist session in browser
         autoRefreshToken: true,
