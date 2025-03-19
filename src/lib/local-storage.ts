@@ -101,33 +101,80 @@ export function updateSermonTranscriptionStatus(
 }
 
 // Save audio file locally and return the file path and URL
-export function saveAudioFile(buffer: Buffer, originalFilename: string, sermonId: string) {
-  ensureDirectoriesExist();
+export async function saveAudioFile(buffer: Buffer, originalFilename: string, sermonId: string) {
+  await ensureDirectoriesExist();
+  
+  // Make sure PATHS is initialized
+  const paths = await initPaths();
+  
+  // Log the paths for debugging
+  console.log('Storage paths in saveAudioFile:', JSON.stringify(paths));
+  
+  if (!paths || !paths.audioDir) {
+    console.error('Error: audioDir is undefined in storage paths', paths);
+    throw new Error('Storage configuration is incomplete: audioDir is missing');
+  }
   
   const extension = path.extname(originalFilename);
   const filename = `${sermonId}${extension}`;
-  const filePath = path.join(PATHS.audioDir, filename);
+  const filePath = path.join(paths.audioDir, filename);
   
-  // Write the file
-  fs.writeFileSync(filePath, buffer);
-  
-  // Create a URL that can be used in the browser
-  const fileUrl = getPublicUrl(filePath);
-  
-  // Update sermon record with new audio URL
-  const sermon = getSermonById(sermonId);
-  if (sermon) {
-    saveSermon({
-      ...sermon,
-      audiourl: fileUrl,
-      updated_at: new Date().toISOString()
-    });
+  // Ensure the audio directory exists
+  if (!fs.existsSync(paths.audioDir)) {
+    console.log(`Audio directory doesn't exist, creating it: ${paths.audioDir}`);
+    fs.mkdirSync(paths.audioDir, { recursive: true });
   }
   
-  return {
-    path: filePath,
-    url: fileUrl
-  };
+  // Write the file
+  try {
+    console.log(`Writing audio file to: ${filePath}`);
+    fs.writeFileSync(filePath, buffer);
+    console.log(`Successfully wrote file, size: ${buffer.length} bytes`);
+    
+    // Verify the file was written correctly
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`File was not created at ${filePath}`);
+    }
+    
+    const stats = fs.statSync(filePath);
+    console.log(`File stats: size=${stats.size}, isFile=${stats.isFile()}`);
+    
+    if (stats.size === 0) {
+      throw new Error('File was created but is empty');
+    }
+  } catch (writeError: any) {
+    console.error('Error writing audio file:', writeError);
+    throw new Error(`Failed to write audio file: ${writeError.message}`);
+  }
+  
+  // Create a URL that can be used in the browser
+  try {
+    const fileUrl = await getPublicUrl(filePath);
+    console.log(`Generated public URL: ${fileUrl}`);
+    
+    // Update sermon record with new audio URL
+    try {
+      const sermon = await getSermonById(sermonId);
+      if (sermon) {
+        await saveSermon({
+          ...sermon,
+          audiourl: fileUrl,
+          updated_at: new Date().toISOString()
+        });
+      }
+    } catch (sermonError) {
+      console.error('Error updating sermon record:', sermonError);
+      // Continue anyway since we have the file and URL
+    }
+    
+    return {
+      path: filePath,
+      url: fileUrl
+    };
+  } catch (urlError: any) {
+    console.error('Error generating public URL:', urlError);
+    throw new Error(`Failed to generate public URL: ${urlError.message}`);
+  }
 }
 
 // Get audio file path by filename
