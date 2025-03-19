@@ -33,7 +33,10 @@ const openai = new OpenAI({
  */
 export async function downloadAudioFile(audioUrl: string, localPath?: string): Promise<string> {
   // Generate a unique temp file path if not provided
-  const outputPath = localPath || path.join(os.tmpdir(), 'temp-audio', `${uuidv4()}.mp3`);
+  const isVercel = process.env.VERCEL === '1';
+  const tempBaseDir = isVercel ? '/tmp' : os.tmpdir();
+  const tempAudioDir = path.join(tempBaseDir, 'temp-audio');
+  const outputPath = localPath || path.join(tempAudioDir, `${uuidv4()}.mp3`);
   
   console.log(`Downloading audio from ${audioUrl} to ${outputPath}`);
   
@@ -284,15 +287,15 @@ export async function compressAudioFile(
   // Generate output path
   const parsedPath = path.parse(inputPath);
   
-  // Ensure temp directory exists in Vercel environment
-  let outputDir = parsedPath.dir;
-  if (isVercel) {
-    // In Vercel, use /tmp directory
-    outputDir = '/tmp';
-    // Ensure directory exists
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
-    }
+  // Ensure temp directory exists with proper handling for Vercel
+  const tempBaseDir = isVercel ? '/tmp' : os.tmpdir();
+  // Create a dedicated subdirectory for better organization
+  const outputDir = path.join(tempBaseDir, 'audio-compression');
+  
+  // Ensure directory exists
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+    console.log(`Created output directory: ${outputDir}`);
   }
   
   const outputPath = path.join(outputDir, `${parsedPath.name}_compressed.mp3`);

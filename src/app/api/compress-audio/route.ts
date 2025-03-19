@@ -40,19 +40,38 @@ export async function POST(request: NextRequest) {
     // Create a temporary directory for file storage
     // In Vercel, use /tmp directory instead of os.tmpdir()
     const isVercel = process.env.VERCEL === '1';
-    const tempDir = isVercel ? '/tmp/sermon-audio' : path.join(os.tmpdir(), 'sermon-audio');
+    const tempBaseDir = isVercel ? '/tmp' : os.tmpdir();
+    const tempDir = path.join(tempBaseDir, 'sermon-audio');
     
     console.log(`Using temporary directory: ${tempDir}`);
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-      console.log('Created temporary directory');
-    } else {
-      console.log('Temporary directory already exists');
+    try {
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+        console.log('Created temporary directory');
+      } else {
+        console.log('Temporary directory already exists');
+      }
+    } catch (dirError) {
+      console.error('Error creating temp directory:', dirError);
+      // Fall back to base temp directory if subdirectory creation fails
+      console.log('Falling back to base temp directory');
+      if (isVercel) {
+        // Make sure /tmp exists in Vercel
+        if (!fs.existsSync('/tmp')) {
+          try {
+            fs.mkdirSync('/tmp');
+            console.log('Created /tmp directory in Vercel');
+          } catch (e) {
+            console.error('Failed to create /tmp directory:', e);
+          }
+        }
+      }
     }
 
-    // Generate unique filenames
-    const originalFilename = `${sermonId}-${Date.now()}-${file.name}`;
-    const originalFilePath = path.join(tempDir, originalFilename);
+    // Generate unique filenames with safer path handling
+    const sanitizedSermonId = sermonId.replace(/[^a-zA-Z0-9-]/g, '_');
+    const originalFilename = `${sanitizedSermonId}-${Date.now()}-audio.mp3`;
+    const originalFilePath = path.join(isVercel ? '/tmp' : tempDir, originalFilename);
     console.log(`Generated original file path: ${originalFilePath}`);
 
     // Convert the file to a Buffer and save it

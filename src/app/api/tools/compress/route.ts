@@ -31,20 +31,38 @@ export async function POST(request: NextRequest) {
     // Create a temporary directory for file storage
     // In Vercel, use /tmp directory instead of os.tmpdir()
     const isVercel = process.env.VERCEL === '1';
-    const tempDir = isVercel ? '/tmp/audio-compression' : path.join(os.tmpdir(), 'audio-compression');
+    const tempBaseDir = isVercel ? '/tmp' : os.tmpdir();
+    const tempDir = path.join(tempBaseDir, 'audio-compression');
     
     console.log(`Using temporary directory: ${tempDir}`);
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-      console.log('Created temporary directory');
-    } else {
-      console.log('Temporary directory already exists');
+    try {
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+        console.log('Created temporary directory');
+      } else {
+        console.log('Temporary directory already exists');
+      }
+    } catch (dirError) {
+      console.error('Error creating temp directory:', dirError);
+      // Fall back to base temp directory if subdirectory creation fails
+      console.log('Falling back to base temp directory');
+      if (isVercel) {
+        // Make sure /tmp exists in Vercel
+        if (!fs.existsSync('/tmp')) {
+          try {
+            fs.mkdirSync('/tmp');
+            console.log('Created /tmp directory in Vercel');
+          } catch (e) {
+            console.error('Failed to create /tmp directory:', e);
+          }
+        }
+      }
     }
 
-    // Generate unique filenames
+    // Generate unique filenames with safer path handling
     const timestamp = Date.now();
-    const originalFilename = `${timestamp}-${file.name}`;
-    const originalFilePath = path.join(tempDir, originalFilename);
+    const safeFilename = `audio-${timestamp}.mp3`;
+    const originalFilePath = path.join(isVercel ? '/tmp' : tempDir, safeFilename);
     console.log(`Generated original file path: ${originalFilePath}`);
 
     // Convert the file to a Buffer and save it

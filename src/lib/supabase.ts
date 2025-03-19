@@ -12,6 +12,9 @@ function validateAndFormatUrl(url: string): string {
     throw new Error('Supabase URL is required');
   }
 
+  // Remove any control characters that might have been accidentally included
+  url = url.replace(/[\x00-\x1F\x7F]/g, '');
+
   // Ensure URL starts with https:// (or http:// for local development)
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
     url = 'https://' + url;
@@ -22,17 +25,39 @@ function validateAndFormatUrl(url: string): string {
     new URL(url);
     return url;
   } catch (error) {
-    throw new Error(`Invalid Supabase URL: ${url}`);
+    console.error(`Invalid Supabase URL detected: ${url}`);
+    // Fall back to a default structure if we can extract a domain
+    const domainMatch = url.match(/^https?:\/\/([a-zA-Z0-9.-]+)/);
+    if (domainMatch && domainMatch[1]) {
+      const fallbackUrl = `https://${domainMatch[1]}`;
+      console.warn(`Attempting to use fallback URL: ${fallbackUrl}`);
+      return fallbackUrl;
+    }
+    throw new Error(`Cannot create valid Supabase URL from: ${url}`);
   }
 }
 
-// Format and validate the URL
-const validatedUrl = validateAndFormatUrl(supabaseUrl);
+// Safely create clients with proper error handling
+function createSafeClient(url: string, key: string) {
+  try {
+    // Format and validate the URL
+    const validatedUrl = validateAndFormatUrl(url);
+    return createClient(validatedUrl, key);
+  } catch (error) {
+    console.error('Failed to create Supabase client:', error);
+    // Create a dummy client that will throw clear errors when used
+    // This prevents the application from crashing immediately during build
+    return {
+      auth: {},
+      from: () => ({ select: () => Promise.reject(new Error('Invalid Supabase configuration')) }),
+      storage: { from: () => ({ upload: () => Promise.reject(new Error('Invalid Supabase configuration')) }) },
+      // Add other commonly used methods as needed
+    } as any;
+  }
+}
 
-// Create a Supabase client with the anonymous key for client-side operations
-export const supabaseClient = createClient(validatedUrl, supabaseAnonKey);
-
-// Create a Supabase admin client with the service role key for server-side operations
-export const supabaseAdmin = createClient(validatedUrl, supabaseServiceRoleKey);
+// Create Supabase clients with proper error handling
+export const supabaseClient = createSafeClient(supabaseUrl, supabaseAnonKey);
+export const supabaseAdmin = createSafeClient(supabaseUrl, supabaseServiceRoleKey);
 
 export default supabaseClient; 
