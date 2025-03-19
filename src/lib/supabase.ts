@@ -59,11 +59,28 @@ function validateAndFormatUrl(url: string): string {
 // Safely create clients with proper error handling
 function createSafeClient(url: string, key: string) {
   try {
+    // Add detailed debugging about the key
+    console.log('Key input type:', typeof key);
+    console.log('Raw key is empty?', !key);
+    console.log('Key contains control chars?', /[\x00-\x1F\x7F]/.test(key));
+    
+    // More detailed inspection
+    const keyChars = Array.from(key).map(char => ({ char, code: char.charCodeAt(0) }));
+    const suspiciousChars = keyChars.filter(c => c.code < 32 || c.code === 127);
+    if (suspiciousChars.length > 0) {
+      console.log('Found suspicious characters:', suspiciousChars.map(c => c.code).join(','));
+    }
+    
     // Clean the key of any control characters or whitespace
     const cleanedKey = key.replace(/[\x00-\x1F\x7F]/g, '')
                           .replace(/\^C/g, '')
                           .replace(/\r?\n|\r/g, '')
                           .trim();
+    
+    // Detailed comparison
+    console.log('Original key length:', key.length);
+    console.log('Cleaned key length:', cleanedKey.length);
+    console.log('Difference:', key.length - cleanedKey.length);
     
     if (!cleanedKey || cleanedKey.trim() === '') {
       console.error('Supabase API key is empty or contains only control characters');
