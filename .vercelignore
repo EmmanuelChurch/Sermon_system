@@ -1,0 +1,29 @@
+# See https://vercel.com/guides/how-do-i-use-the-vercelignore-file
+
+# Large audio files
+*.mp3
+*.wav
+*.m4a
+*.ogg
+/local-storage/
+/recordings/
+/Introandoutro/
+/temp/
+/public/uploads/
+/public/compressed/
+
+# Test files
+/test/
+/tests/
+
+# Git files
+.git/
+.github/
+
+# Build artifacts
+/.next/
+/node_modules/
+/coverage/
+
+# Debug and logs
+*.log 
