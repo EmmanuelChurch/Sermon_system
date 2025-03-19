@@ -1,9 +1,68 @@
 "use client";
 
-import { useState, useRef, FormEvent, useEffect } from 'react';
+import { useState, useRef, FormEvent, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { compressAudioFileClient } from '@/lib/audio-processing';
+
+type UploadStep = 
+  | 'idle' 
+  | 'compressing' 
+  | 'uploading' 
+  | 'processing'
+  | 'transcribing'
+  | 'completed'
+  | 'error';
+
+// Add this hook before the component
+function useProcessingSimulation() {
+  const [processingStep, setProcessingStep] = useState<string>('');
+  const [processingProgress, setProcessingProgress] = useState<number>(0);
+  const [isSimulating, setIsSimulating] = useState<boolean>(false);
+  
+  const simulateProcessing = useCallback((onComplete: () => void) => {
+    setIsSimulating(true);
+    setProcessingProgress(0);
+    setProcessingStep('Analyzing audio file...');
+    
+    const steps = [
+      { step: 'Analyzing audio file...', progress: 10, duration: 1000 },
+      { step: 'Preparing for transcription...', progress: 20, duration: 1200 },
+      { step: 'Transcribing audio...', progress: 40, duration: 2000 },
+      { step: 'Generating snippets...', progress: 70, duration: 1500 },
+      { step: 'Finalizing...', progress: 90, duration: 1000 },
+      { step: 'Complete', progress: 100, duration: 800 }
+    ];
+    
+    let currentStepIndex = 0;
+    
+    const processStep = () => {
+      if (currentStepIndex >= steps.length) {
+        setIsSimulating(false);
+        onComplete();
+        return;
+      }
+      
+      const currentStep = steps[currentStepIndex];
+      setProcessingStep(currentStep.step);
+      setProcessingProgress(currentStep.progress);
+      
+      currentStepIndex++;
+      
+      setTimeout(processStep, currentStep.duration);
+    };
+    
+    // Start processing
+    processStep();
+  }, []);
+  
+  return {
+    processingStep,
+    processingProgress,
+    isSimulating,
+    simulateProcessing
+  };
+}
 
 export default function UploadPage() {
   const router = useRouter();
@@ -27,12 +86,30 @@ export default function UploadPage() {
   const [isCompressing, setIsCompressing] = useState(false);
   const [compressionProgress, setCompressionProgress] = useState<string | null>(null);
   const [originalFileSize, setOriginalFileSize] = useState<number | null>(null);
+  const [currentStep, setCurrentStep] = useState<UploadStep>('idle');
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [stepDetails, setStepDetails] = useState<string>('');
+
+  const {
+    processingStep,
+    processingProgress,
+    isSimulating,
+    simulateProcessing
+  } = useProcessingSimulation();
+
+  // Helper function to update progress state
+  const updateProgress = (step: UploadStep, details: string = '', progress: number = 0) => {
+    setCurrentStep(step);
+    setStepDetails(details);
+    setUploadProgress(progress);
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
       setFile(selectedFile);
       setOriginalFileSize(selectedFile.size);
+      updateProgress('idle', 'File selected');
       
       // Display file size info
       const fileSizeMB = (selectedFile.size / (1024 * 1024)).toFixed(2);
@@ -43,6 +120,59 @@ export default function UploadPage() {
         setCompressionProgress(`File is large (${fileSizeMB} MB). It will be compressed before upload.`);
       }
     }
+  };
+
+  // Custom upload function with progress tracking
+  const uploadWithProgress = async (formData: FormData): Promise<any> => {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      
+      // Track upload progress
+      xhr.upload.addEventListener('progress', (event) => {
+        if (event.lengthComputable) {
+          // Calculate upload percentage and update progress
+          const percentComplete = Math.round((event.loaded / event.total) * 100);
+          // Map to our 40-70% range in the overall process
+          const mappedProgress = 40 + (percentComplete * 0.3);
+          setUploadProgress(mappedProgress);
+          setStepDetails(`Uploading... ${percentComplete}%`);
+        }
+      });
+      
+      // Handle completion
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const response = JSON.parse(xhr.responseText);
+            resolve(response);
+          } catch (error) {
+            reject(new Error('Invalid response format'));
+          }
+        } else {
+          try {
+            const errorData = JSON.parse(xhr.responseText);
+            reject(new Error(errorData.error || `Upload failed with status ${xhr.status}`));
+          } catch (e) {
+            reject(new Error(`Upload failed with status ${xhr.status}`));
+          }
+        }
+      });
+      
+      // Handle network errors
+      xhr.addEventListener('error', () => {
+        reject(new Error('Network error occurred during upload'));
+      });
+      
+      // Handle timeouts
+      xhr.addEventListener('timeout', () => {
+        reject(new Error('Upload timed out'));
+      });
+      
+      // Open and send request
+      xhr.open('POST', '/api/sermons', true);
+      xhr.timeout = 300000; // 5 minute timeout
+      xhr.send(formData);
+    });
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -81,12 +211,14 @@ export default function UploadPage() {
       
       if (isUrlInput) {
         formData.append('audioUrl', audioUrl);
+        updateProgress('uploading', 'Preparing to upload from URL...', 40);
       } else if (file) {
         let audioFileToUpload = file;
         
         // Compress large audio files on the client side before uploading
         if (file.size > 10 * 1024 * 1024) {
           setIsCompressing(true);
+          updateProgress('compressing', 'Compressing audio file before upload...', 10);
           setCompressionProgress('Compressing audio file before upload...');
           
           try {
@@ -96,12 +228,13 @@ export default function UploadPage() {
             const compressedSizeMB = (audioFileToUpload.size / (1024 * 1024)).toFixed(2);
             const reductionPercent = Math.round((1 - audioFileToUpload.size / file.size) * 100);
             
-            setCompressionProgress(
-              `Compression complete: ${originalSizeMB} MB → ${compressedSizeMB} MB (${reductionPercent}% reduction)`
-            );
+            const compressionMsg = `Compression complete: ${originalSizeMB} MB → ${compressedSizeMB} MB (${reductionPercent}% reduction)`;
+            setCompressionProgress(compressionMsg);
+            updateProgress('compressing', compressionMsg, 30);
           } catch (compressError) {
             console.error('Compression failed, using original file:', compressError);
             setCompressionProgress('Compression failed, using original file');
+            updateProgress('compressing', 'Compression failed, continuing with original file', 30);
           } finally {
             setIsCompressing(false);
           }
@@ -109,28 +242,113 @@ export default function UploadPage() {
         
         formData.append('audioFile', audioFileToUpload);
       }
+
+      // Start upload with progress tracking
+      updateProgress('uploading', 'Starting upload...', 40);
       
-      // Submit the form
-      const response = await fetch('/api/sermons', {
-        method: 'POST',
-        body: formData,
+      // Use our custom upload function instead of fetch
+      const data = await uploadWithProgress(formData);
+      
+      // Start processing simulation after successful upload
+      updateProgress('processing', 'Processing started...', 70);
+      
+      simulateProcessing(() => {
+        // This will run when the simulation is complete
+        updateProgress('completed', 'Upload and processing completed successfully!', 100);
+        
+        // Short delay to show completion before redirect
+        setTimeout(() => {
+          // Redirect to the sermon detail page
+          router.push(`/dashboard/sermons/${data.id}`);
+        }, 1000);
       });
       
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to upload sermon');
-      }
-      
-      const data = await response.json();
-      
-      // Redirect to the sermon detail page
-      router.push(`/dashboard/sermons/${data.id}`);
     } catch (err) {
       console.error('Error uploading sermon:', err);
       setError(err instanceof Error ? err.message : 'Failed to upload sermon');
+      updateProgress('error', err instanceof Error ? err.message : 'Failed to upload sermon');
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Function to render the progress indicator
+  const renderProgressIndicator = () => {
+    if (currentStep === 'idle') return null;
+    
+    const steps = [
+      { key: 'compressing', label: 'Compression' },
+      { key: 'uploading', label: 'Upload' },
+      { key: 'processing', label: 'Processing' },
+      { key: 'completed', label: 'Complete' }
+    ];
+    
+    const getCurrentStepIndex = () => {
+      if (currentStep === 'error') return -1;
+      return steps.findIndex(step => step.key === currentStep);
+    };
+    
+    const currentStepIndex = getCurrentStepIndex();
+    
+    // Calculate progress based on current step and simulation
+    const calculateProgress = () => {
+      if (currentStep === 'error') return uploadProgress;
+      if (currentStep === 'processing' && isSimulating) {
+        return 70 + (processingProgress * 0.3 / 100);
+      }
+      return uploadProgress;
+    };
+    
+    // Get the current detail text
+    const getDetailText = () => {
+      if (currentStep === 'error') return stepDetails;
+      if (currentStep === 'processing' && isSimulating) {
+        return processingStep;
+      }
+      return stepDetails;
+    };
+    
+    return (
+      <div className="mt-6 mb-4">
+        <div className="flex items-center justify-between mb-2">
+          {steps.map((step, index) => (
+            <div key={step.key} className="flex flex-col items-center">
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                currentStepIndex >= index 
+                  ? currentStepIndex === index 
+                    ? 'bg-blue-500 text-white' 
+                    : 'bg-green-500 text-white'
+                  : 'bg-gray-200 text-gray-500'
+              }`}>
+                {currentStepIndex > index ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                ) : (
+                  index + 1
+                )}
+              </div>
+              <span className="text-xs mt-1">{step.label}</span>
+            </div>
+          ))}
+        </div>
+        
+        <div className="w-full bg-gray-200 rounded-full h-2.5">
+          <div 
+            className={`h-2.5 rounded-full ${currentStep === 'error' ? 'bg-red-500' : 'bg-blue-500'}`} 
+            style={{ width: `${calculateProgress()}%` }}
+          ></div>
+        </div>
+        
+        <div className="text-sm mt-2 text-center">
+          {currentStep === 'error' ? (
+            <span className="text-red-500">{getDetailText()}</span>
+          ) : (
+            <span>{getDetailText()}</span>
+          )}
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -160,6 +378,8 @@ export default function UploadPage() {
             <p>{error}</p>
           </div>
         )}
+        
+        {renderProgressIndicator()}
         
         <form onSubmit={handleSubmit}>
           <div className="mb-4">
@@ -357,14 +577,7 @@ export default function UploadPage() {
             )}
           </div>
           
-          <div className="flex items-center justify-end space-x-4">
-            <Link
-              href="/dashboard"
-              className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
-            >
-              Cancel
-            </Link>
-            
+          <div className="flex justify-end space-x-4 mt-6">
             <button
               type="submit"
               disabled={isLoading || isCompressing}
