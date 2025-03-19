@@ -1,0 +1,55 @@
+[15:25:51.784] Cloning github.com/EmmanuelChurch/Sermon_system (Branch: main, Commit: 5aa1155)
+[15:25:51.823] Skipping build cache, deployment was triggered without cache.
+[15:25:52.266] Cloning completed: 481.000ms
+[15:25:52.365] Found .vercelignore
+[15:25:52.376] Removed 27 ignored files defined in .vercelignore
+[15:25:52.628] Running build in Washington, D.C., USA (East) – iad1
+[15:25:52.783] Running "vercel build"
+[15:25:53.147] Vercel CLI 41.4.1
+[15:25:53.458] Installing dependencies...
+[15:25:58.217] npm warn deprecated @supabase/auth-helpers-shared@0.7.0: This package is now deprecated - please use the @supabase/ssr package instead.
+[15:25:58.932] npm warn deprecated @supabase/auth-helpers-nextjs@0.10.0: This package is now deprecated - please use the @supabase/ssr package instead.
+[15:26:09.567] 
+[15:26:09.567] added 573 packages in 16s
+[15:26:09.567] 
+[15:26:09.568] 172 packages are looking for funding
+[15:26:09.568]   run `npm fund` for details
+[15:26:09.624] Detected Next.js version: 15.2.2
+[15:26:09.631] Running "npm run build"
+[15:26:09.744] 
+[15:26:09.744] > sermon-system@0.1.0 build
+[15:26:09.744] > next build
+[15:26:09.745] 
+[15:26:10.376] Attention: Next.js now collects completely anonymous telemetry regarding usage.
+[15:26:10.376] This information is used to shape Next.js' roadmap and prioritize features.
+[15:26:10.376] You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+[15:26:10.376] https://nextjs.org/telemetry
+[15:26:10.376] 
+[15:26:10.436]    ▲ Next.js 15.2.2
+[15:26:10.436]    - Environments: .env.production
+[15:26:10.436] 
+[15:26:10.506]    Creating an optimized production build ...
+[15:26:25.672]  ✓ Compiled successfully
+[15:26:25.680]    Skipping validation of types
+[15:26:25.681]    Skipping linting
+[15:26:26.067]    Collecting page data ...
+[15:26:26.610] TypeError: Invalid URL
+[15:26:26.610]     at new t_ (.next/server/chunks/7708.js:6:68873)
+[15:26:26.610]     at tk (.next/server/chunks/7708.js:6:72549)
+[15:26:26.610]     at 56621 (.next/server/app/api/compress-audio/route.js:1:1343)
+[15:26:26.611]     at t (.next/server/webpack-runtime.js:1:128)
+[15:26:26.611]     at 78733 (.next/server/app/api/compress-audio/route.js:1:2081)
+[15:26:26.611]     at t (.next/server/webpack-runtime.js:1:128)
+[15:26:26.611]     at o (.next/server/app/api/compress-audio/route.js:1:6047)
+[15:26:26.611]     at <unknown> (.next/server/app/api/compress-audio/route.js:1:6114)
+[15:26:26.611]     at t.X (.next/server/webpack-runtime.js:1:1206) {
+[15:26:26.611]   code: 'ERR_INVALID_URL',
+[15:26:26.611]   input: '^C/auth/v1'
+[15:26:26.611] }
+[15:26:26.632] 
+[15:26:26.633] > Build error occurred
+[15:26:26.633] [Error: Failed to collect page data for /api/compress-audio] {
+[15:26:26.633]   type: 'Error'
+[15:26:26.633] }
+[15:26:26.681] Error: Command "npm run build" exited with 1
+[15:26:27.046] 

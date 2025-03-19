@@ -38,7 +38,10 @@ export async function POST(request: NextRequest) {
     console.log(`Received file: ${file.name}, Size: ${file.size} bytes, Type: ${file.type}, SermonID: ${sermonId}`);
 
     // Create a temporary directory for file storage
-    const tempDir = path.join(os.tmpdir(), 'sermon-audio');
+    // In Vercel, use /tmp directory instead of os.tmpdir()
+    const isVercel = process.env.VERCEL === '1';
+    const tempDir = isVercel ? '/tmp/sermon-audio' : path.join(os.tmpdir(), 'sermon-audio');
+    
     console.log(`Using temporary directory: ${tempDir}`);
     if (!fs.existsSync(tempDir)) {
       fs.mkdirSync(tempDir, { recursive: true });

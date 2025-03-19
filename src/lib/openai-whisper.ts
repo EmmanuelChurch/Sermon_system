@@ -116,6 +116,14 @@ export async function downloadAudioFile(audioUrl: string, localPath?: string): P
  * Find FFmpeg executable, trying multiple possible locations
  */
 export async function findFfmpegPath(): Promise<string | null> {
+  // In Vercel Production environment, we need to use a different approach
+  const isVercel = process.env.VERCEL === '1';
+  
+  if (isVercel) {
+    console.log('Running in Vercel environment, using PATH for FFmpeg');
+    return 'ffmpeg'; // In Vercel, we depend on the system ffmpeg
+  }
+  
   // Paths to check for FFmpeg
   const possiblePaths = [
     // Path from env variable (if set)
@@ -256,6 +264,8 @@ export async function compressAudioFile(
   sermonId?: string,
   targetSizeBytes: number = MAX_FILE_SIZE
 ): Promise<string> {
+  const isVercel = process.env.VERCEL === '1';
+  
   // First check if the file exists
   if (!fs.existsSync(inputPath)) {
     throw new Error(`Input file not found: ${inputPath}`);
@@ -273,7 +283,19 @@ export async function compressAudioFile(
   
   // Generate output path
   const parsedPath = path.parse(inputPath);
-  const outputPath = path.join(parsedPath.dir, `${parsedPath.name}_compressed.mp3`);
+  
+  // Ensure temp directory exists in Vercel environment
+  let outputDir = parsedPath.dir;
+  if (isVercel) {
+    // In Vercel, use /tmp directory
+    outputDir = '/tmp';
+    // Ensure directory exists
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+  }
+  
+  const outputPath = path.join(outputDir, `${parsedPath.name}_compressed.mp3`);
   
   console.log(`File size ${fileSizeBytes / (1024 * 1024)}MB exceeds limit of ${targetSizeBytes / (1024 * 1024)}MB, compressing...`);
   
@@ -337,8 +359,8 @@ export async function compressAudioFile(
             if (newStats.size > targetSizeBytes) {
               console.log('File still too large, applying second pass compression...');
               
-              // Generate a second output path
-              const secondPassPath = path.join(parsedPath.dir, `${parsedPath.name}_compressed_2.mp3`);
+              // Generate a second output path (use same output directory logic)
+              const secondPassPath = path.join(outputDir, `${parsedPath.name}_compressed_2.mp3`);
               
               // Apply more aggressive compression
               ffmpeg(outputPath)

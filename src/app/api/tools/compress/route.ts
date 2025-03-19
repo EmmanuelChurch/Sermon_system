@@ -29,7 +29,10 @@ export async function POST(request: NextRequest) {
     console.log(`Received file: ${file.name}, Size: ${file.size} bytes, Type: ${file.type}`);
 
     // Create a temporary directory for file storage
-    const tempDir = path.join(os.tmpdir(), 'audio-compression');
+    // In Vercel, use /tmp directory instead of os.tmpdir()
+    const isVercel = process.env.VERCEL === '1';
+    const tempDir = isVercel ? '/tmp/audio-compression' : path.join(os.tmpdir(), 'audio-compression');
+    
     console.log(`Using temporary directory: ${tempDir}`);
     if (!fs.existsSync(tempDir)) {
       fs.mkdirSync(tempDir, { recursive: true });
@@ -63,12 +66,27 @@ export async function POST(request: NextRequest) {
     console.log(`Compression ratio: ${compressionRatio}% reduction`);
 
     // Create a persistent location for compressed files
-    const publicDir = path.join(process.cwd(), 'public');
-    const compressedDir = path.join(publicDir, 'compressed');
+    // For Vercel, we need to use /tmp directory for output files as well
+    let compressedDir;
+    let publicUrl;
     
-    if (!fs.existsSync(compressedDir)) {
-      fs.mkdirSync(compressedDir, { recursive: true });
-      console.log(`Created compressed files directory: ${compressedDir}`);
+    if (isVercel) {
+      // In Vercel, continue using the temp directory
+      compressedDir = tempDir;
+      // Public URL will need to be returned via API
+      publicUrl = '/api/file/compressed';  // This will need a file service API
+    } else {
+      // For local development, use the public directory
+      const publicDir = path.join(process.cwd(), 'public');
+      compressedDir = path.join(publicDir, 'compressed');
+      
+      if (!fs.existsSync(compressedDir)) {
+        fs.mkdirSync(compressedDir, { recursive: true });
+        console.log(`Created compressed files directory: ${compressedDir}`);
+      }
+      
+      // Local public URL
+      publicUrl = `/compressed`;
     }
     
     // Generate a unique filename for the compressed file
@@ -77,13 +95,13 @@ export async function POST(request: NextRequest) {
     const uniqueFileName = `${uniqueId}${fileExtension}`;
     const destinationPath = path.join(compressedDir, uniqueFileName);
     
-    // Copy the compressed file to the public directory
+    // Copy the compressed file to the output directory
     fs.copyFileSync(compressedFilePath, destinationPath);
     console.log(`Copied compressed file to: ${destinationPath}`);
     
     // Create a public URL for the file
-    const publicUrl = `/compressed/${uniqueFileName}`;
-    console.log(`Public URL: ${publicUrl}`);
+    const fullPublicUrl = `${publicUrl}/${uniqueFileName}`;
+    console.log(`Public URL: ${fullPublicUrl}`);
     
     // Clean up temporary files
     console.log('Cleaning up temporary files...');
@@ -111,7 +129,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       size: compressedFileSize,
-      url: publicUrl,
+      url: fullPublicUrl,
       originalSize: file.size,
       compressionRatio: `${compressionRatio}%`,
       filename: `compressed-${path.basename(file.name, path.extname(file.name))}${fileExtension}`
