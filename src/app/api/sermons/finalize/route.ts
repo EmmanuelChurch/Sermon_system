@@ -259,58 +259,75 @@ export async function POST(request: NextRequest) {
         );
       }
       
-      console.log(`Saving audio file with ID: ${sermonId}`);
-      const saveResult = await saveAudioFile(fileBuffer, originalFileName, sermonId);
-      console.log(`Saved audio file with result:`, saveResult);
+      console.log(`Saving audio file with ID: ${sermonId}, filename: ${originalFileName}`);
+      console.log(`Buffer integrity check: First 20 bytes: ${fileBuffer.slice(0, 20).toString('hex')}`);
       
-      if (!saveResult || !saveResult.url) {
-        console.error('saveAudioFile did not return a valid result');
+      // Log the paths we're using
+      const paths = await getStoragePaths();
+      console.log(`Storage paths: ${JSON.stringify(paths)}`);
+      
+      try {
+        const saveResult = await saveAudioFile(fileBuffer, originalFileName, sermonId);
+        console.log(`Saved audio file successfully, result:`, saveResult);
+        
+        if (!saveResult || !saveResult.url) {
+          console.error('saveAudioFile did not return a valid result');
+          return NextResponse.json(
+            { error: 'Failed to save audio file: No URL returned' },
+            { status: 500 }
+          );
+        }
+        
+        // Save sermon data
+        const sermon = {
+          id: sermonId,
+          title: title || 'Untitled',
+          speaker: speaker || 'Unknown',
+          date: date || new Date().toISOString().split('T')[0],
+          audiourl: saveResult.url,
+          transcriptionstatus: 'not_started',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        
+        console.log(`Saving sermon metadata: ${JSON.stringify(sermon)}`);
+        await saveSermon(sermon);
+        console.log(`Sermon saved with ID: ${sermonId}`);
+        
+        // Clean up temporary files - wrap in try/catch to continue even if cleanup fails
+        try {
+          console.log(`Cleaning up temporary files from ${chunksDir}`);
+          for (let i = 0; i < totalChunks; i++) {
+            const chunkPath = path.join(chunksDir, `chunk-${i}`);
+            if (fs.existsSync(chunkPath)) {
+              fs.unlinkSync(chunkPath);
+            }
+          }
+          
+          if (fs.existsSync(metadataPath)) {
+            fs.unlinkSync(metadataPath);
+          }
+          
+          fs.rmdirSync(chunksDir);
+          fs.unlinkSync(reassembledFilePath);
+          console.log('Temporary files cleaned up successfully');
+        } catch (cleanupError) {
+          console.error('Error cleaning up temporary files:', cleanupError);
+          // Non-fatal error, continue
+        }
+        
+        return NextResponse.json({
+          id: sermonId,
+          message: 'Chunked upload completed successfully',
+        });
+      } catch (saveError) {
+        console.error(`Error in saveAudioFile: ${saveError instanceof Error ? saveError.message : 'Unknown error'}`);
+        console.error(`Error details:`, saveError);
         return NextResponse.json(
-          { error: 'Failed to save audio file: No URL returned' },
+          { error: `Failed to save audio file: ${saveError instanceof Error ? saveError.message : 'Unknown error'}` },
           { status: 500 }
         );
       }
-      
-      // Save sermon data
-      const sermon = {
-        id: sermonId,
-        title: title || 'Untitled',
-        speaker: speaker || 'Unknown',
-        date: date || new Date().toISOString().split('T')[0],
-        audiourl: saveResult.url,
-        transcriptionstatus: 'not_started',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      
-      await saveSermon(sermon);
-      console.log(`Sermon saved with ID: ${sermonId}`);
-      
-      // Clean up temporary files - wrap in try/catch to continue even if cleanup fails
-      try {
-        console.log(`Cleaning up temporary files from ${chunksDir}`);
-        for (let i = 0; i < totalChunks; i++) {
-          const chunkPath = path.join(chunksDir, `chunk-${i}`);
-          if (fs.existsSync(chunkPath)) {
-            fs.unlinkSync(chunkPath);
-          }
-        }
-        
-        if (fs.existsSync(metadataPath)) {
-          fs.unlinkSync(metadataPath);
-        }
-        
-        fs.rmdirSync(chunksDir);
-        fs.unlinkSync(reassembledFilePath);
-      } catch (cleanupError) {
-        console.error('Error cleaning up temporary files:', cleanupError);
-        // Non-fatal error, continue
-      }
-      
-      return NextResponse.json({
-        id: sermonId,
-        message: 'Chunked upload completed successfully',
-      });
     } catch (error) {
       console.error('Error saving reassembled file:', error);
       return NextResponse.json(
