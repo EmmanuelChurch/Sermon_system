@@ -11,13 +11,31 @@ const execAsync = util.promisify(exec);
 
 // Function to download a file from a URL to a local path
 async function downloadFile(url: string): Promise<string> {
-  const tempDir = path.join(process.cwd(), 'temp');
-  if (!fs.access(tempDir)) {
+  // Use /tmp in production (serverless) environments where /var/task is read-only
+  const tempDir = process.env.NODE_ENV === 'production' 
+    ? '/tmp' 
+    : path.join(process.cwd(), 'temp');
+    
+  console.log(`Using temp directory: ${tempDir} for environment: ${process.env.NODE_ENV}`);
+  
+  try {
     await fs.mkdir(tempDir, { recursive: true });
+  } catch (err) {
+    console.error(`Error creating temp directory: ${tempDir}`, err);
+    // Fall back to OS temp directory if we can't create our preferred dir
+    const osTempDir = require('os').tmpdir();
+    console.log(`Falling back to OS temp directory: ${osTempDir}`);
+    await fs.mkdir(osTempDir, { recursive: true });
+    return downloadToDirectory(url, osTempDir);
   }
   
+  return downloadToDirectory(url, tempDir);
+}
+
+// Helper function to download to a specific directory
+async function downloadToDirectory(url: string, directory: string): Promise<string> {
   const urlHash = crypto.createHash('md5').update(url).digest('hex');
-  const tempFilePath = path.join(tempDir, `file-${urlHash}.mp3`);
+  const tempFilePath = path.join(directory, `file-${urlHash}.mp3`);
   
   console.log(`Downloading file from ${url} to ${tempFilePath}`);
   

@@ -29,15 +29,9 @@ const openai = new OpenAI({
 });
 
 /**
- * Download an audio file from a URL
+ * Helper function to actually download the audio to a specific path
  */
-export async function downloadAudioFile(audioUrl: string, localPath?: string): Promise<string> {
-  // Generate a unique temp file path if not provided
-  const isVercel = process.env.VERCEL === '1';
-  const tempBaseDir = isVercel ? '/tmp' : os.tmpdir();
-  const tempAudioDir = path.join(tempBaseDir, 'temp-audio');
-  const outputPath = localPath || path.join(tempAudioDir, `${uuidv4()}.mp3`);
-  
+async function downloadAudioToPath(audioUrl: string, outputPath: string): Promise<string> {
   console.log(`Downloading audio from ${audioUrl} to ${outputPath}`);
   
   // If the file already exists at the output path, return it
@@ -50,16 +44,20 @@ export async function downloadAudioFile(audioUrl: string, localPath?: string): P
         return outputPath;
       }
     } catch (error) {
-      console.error(`Error checking existing file: ${error}`);
+      console.warn(`Error checking existing file: ${error}`);
+      // Will continue to download a new copy
     }
   }
   
-  // Ensure the directory exists
+  // Ensure directory exists
   const dir = path.dirname(outputPath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  try {
+    await fsPromises.mkdir(dir, { recursive: true });
+  } catch (err) {
+    console.warn(`Could not create directory ${dir}: ${err}`);
+    // Continue anyway
   }
-  
+
   // Handle local API file URLs (starting with /api/file/)
   if (audioUrl.startsWith('/api/file/')) {
     try {
@@ -73,7 +71,7 @@ export async function downloadAudioFile(audioUrl: string, localPath?: string): P
       if (fs.existsSync(localAudioPath)) {
         console.log(`Using local file: ${localAudioPath}`);
         // Copy the file to the output path
-        fs.copyFileSync(localAudioPath, outputPath);
+        await fsPromises.copyFile(localAudioPath, outputPath);
         return outputPath;
       } else {
         throw new Error(`Local audio file not found: ${localAudioPath}`);
@@ -84,35 +82,96 @@ export async function downloadAudioFile(audioUrl: string, localPath?: string): P
     }
   }
   
-  // For external URLs, download as before
-  try {
-    // Add http/https if the URL doesn't have it (but isn't a local file path)
-    let fetchUrl = audioUrl;
-    if (!audioUrl.startsWith('http://') && !audioUrl.startsWith('https://') && !audioUrl.startsWith('/')) {
-      fetchUrl = `https://${audioUrl}`;
+  // For external URLs, try fetch first
+  if (audioUrl.startsWith('http://') || audioUrl.startsWith('https://') || 
+      !audioUrl.startsWith('/')) {
+    try {
+      // Add http/https if the URL doesn't have it (but isn't a local file path)
+      let fetchUrl = audioUrl;
+      if (!audioUrl.startsWith('http://') && !audioUrl.startsWith('https://') && !audioUrl.startsWith('/')) {
+        fetchUrl = `https://${audioUrl}`;
+      }
+      
+      // For absolute URLs, attempt a regular fetch
+      console.log(`Fetching from URL: ${fetchUrl}`);
+      const response = await fetch(fetchUrl);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to download audio: ${response.status} ${response.statusText}`);
+      }
+      
+      // Get the audio data
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      
+      // Write to file
+      await fsPromises.writeFile(outputPath, buffer);
+      
+      console.log(`Successfully downloaded audio to ${outputPath}`);
+      return outputPath;
+    } catch (error) {
+      console.error(`Error downloading with fetch API: ${error}`);
+      console.log('Falling back to http.get method...');
+      // Fall through to http.get method below
     }
-    
-    // For absolute URLs, attempt a regular fetch
-    console.log(`Fetching from URL: ${fetchUrl}`);
-    const response = await fetch(fetchUrl);
-    
-    if (!response.ok) {
-      throw new Error(`Failed to download audio: ${response.status} ${response.statusText}`);
-    }
-    
-    // Get the audio data
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    
-    // Write to file
-    fs.writeFileSync(outputPath, buffer);
-    
-    console.log(`Successfully downloaded audio to ${outputPath}`);
-    return outputPath;
-  } catch (error) {
-    console.error(`Error downloading audio file: ${error}`);
-    throw error;
   }
+
+  // Use http/https module as fallback
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(outputPath);
+    const protocol = audioUrl.startsWith('https') ? https : http;
+    
+    const request = protocol.get(audioUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'audio/*'
+      }
+    }, (response) => {
+      // Check if the request was redirected
+      if (response.statusCode === 301 || response.statusCode === 302) {
+        const newUrl = response.headers.location;
+        if (!newUrl) {
+          reject(new Error(`Redirect without location header`));
+          return;
+        }
+        
+        console.log(`Following redirect to: ${newUrl}`);
+        
+        // Close the current request
+        request.destroy();
+        
+        // Follow the redirect
+        downloadAudioToPath(newUrl, outputPath)
+          .then(resolve)
+          .catch(reject);
+        
+        return;
+      }
+      
+      if (response.statusCode !== 200) {
+        reject(new Error(`Failed to download file: HTTP status ${response.statusCode}`));
+        return;
+      }
+      
+      response.pipe(file);
+      
+      file.on('finish', () => {
+        file.close();
+        console.log(`Download completed to ${outputPath}`);
+        resolve(outputPath);
+      });
+    });
+    
+    request.on('error', (err) => {
+      fs.unlink(outputPath, () => {}); // Delete the file as it might be corrupted
+      reject(err);
+    });
+    
+    file.on('error', (err) => {
+      fs.unlink(outputPath, () => {}); // Delete the file as it might be corrupted
+      reject(err);
+    });
+  });
 }
 
 /**
@@ -400,6 +459,46 @@ export async function compressAudioFile(
     console.error('Error during compression setup:', error);
     throw new Error(`Failed to compress audio file: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+/**
+ * Download an audio file from a URL
+ */
+export async function downloadAudioFile(audioUrl: string, localPath?: string): Promise<string> {
+  // Generate a unique temp file path if not provided
+  // Use /tmp in production (serverless) environments where /var/task is read-only
+  const tempBaseDir = process.env.NODE_ENV === 'production' 
+    ? '/tmp'
+    : path.join(process.cwd(), 'temp');
+    
+  console.log(`Using temp directory for audio: ${tempBaseDir} for environment: ${process.env.NODE_ENV}`);
+  
+  // Create the temp directory if it doesn't exist
+  try {
+    await fsPromises.mkdir(tempBaseDir, { recursive: true });
+  } catch (err) {
+    console.error(`Error creating audio temp directory: ${tempBaseDir}`, err);
+    // Fall back to OS temp directory
+    const osTempDir = os.tmpdir();
+    console.log(`Falling back to OS temp directory: ${osTempDir}`);
+    const outputPath = localPath || path.join(osTempDir, `${uuidv4()}.mp3`);
+    return downloadAudioToPath(audioUrl, outputPath);
+  }
+  
+  const tempAudioDir = path.join(tempBaseDir, 'audio');
+  
+  // Create the nested audio directory
+  try {
+    await fsPromises.mkdir(tempAudioDir, { recursive: true });
+  } catch (err) {
+    console.error(`Error creating nested audio directory: ${tempAudioDir}`, err);
+    // Just use the base temp directory if we can't create the nested one
+    const outputPath = localPath || path.join(tempBaseDir, `${uuidv4()}.mp3`);
+    return downloadAudioToPath(audioUrl, outputPath);
+  }
+  
+  const outputPath = localPath || path.join(tempAudioDir, `${uuidv4()}.mp3`);
+  return downloadAudioToPath(audioUrl, outputPath);
 }
 
 /**
