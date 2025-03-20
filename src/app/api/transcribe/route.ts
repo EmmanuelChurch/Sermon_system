@@ -24,7 +24,19 @@ export async function POST(request: NextRequest) {
   try {
     const { sermonId, useMock } = await request.json();
     console.log('Transcription requested for sermon ID:', sermonId);
-    console.log('Use mock transcription:', useMock ? 'Yes' : 'No');
+    
+    // Determine if mock transcription should be allowed
+    const allowMockTranscription = process.env.ALLOW_MOCK_TRANSCRIPTION === 'true';
+    const useMockTranscription = process.env.USE_MOCK_TRANSCRIPTION === 'true';
+    const isProduction = process.env.NODE_ENV === 'production';
+    
+    // In production, never use mock regardless of request
+    const shouldUseMock = isProduction ? false : (useMock && allowMockTranscription);
+    
+    console.log('Environment:', process.env.NODE_ENV);
+    console.log('Use mock transcription requested:', useMock ? 'Yes' : 'No');
+    console.log('Mock transcription allowed by config:', allowMockTranscription ? 'Yes' : 'No');
+    console.log('Will use mock transcription:', shouldUseMock ? 'Yes' : 'No');
 
     if (!sermonId) {
       return NextResponse.json(
@@ -62,9 +74,10 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      // Use mock transcription if explicitly requested
-      if (useMock === true) {
-        console.log('Using mock transcription as requested');
+      // Use mock transcription if explicitly requested AND allowed by configuration
+      // Note that this will be false in production regardless of the request
+      if (shouldUseMock) {
+        console.log('Using mock transcription as configured');
         const transcription = await mockTranscribeAudio("mock-requested");
         
         // Update the sermon record with the mock transcription

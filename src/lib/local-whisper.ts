@@ -48,7 +48,10 @@ export async function transcribeWithLocalWhisper(audioUrl: string): Promise<stri
     console.log('Transcribing with Local Whisper');
     
     // For testing without local Whisper, return mock transcription
-    if (process.env.NODE_ENV === 'development' && process.env.USE_MOCK_TRANSCRIPTION === 'true') {
+    // Only allow mock in development AND when explicitly enabled
+    if (process.env.NODE_ENV === 'development' && 
+        process.env.USE_MOCK_TRANSCRIPTION === 'true' && 
+        process.env.ALLOW_MOCK_TRANSCRIPTION === 'true') {
       console.log('Using mock transcription in development mode');
       // Simulate processing time
       await new Promise(resolve => setTimeout(resolve, 2000));
@@ -60,6 +63,11 @@ export async function transcribeWithLocalWhisper(audioUrl: string): Promise<stri
       And God said, "Let there be light," and there was light. And God saw that the light was good. And God separated the light from the darkness. God called the light Day, and the darkness he called Night. And there was evening and there was morning, the first day.
       
       Thank you for listening to this sermon. May God bless you.`;
+    }
+    
+    // Log that we're using real transcription in production
+    if (process.env.NODE_ENV === 'production') {
+      console.log('Running in production mode - using real transcription service');
     }
     
     // Get the file path - either from a URL or a local path
