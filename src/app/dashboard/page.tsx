@@ -17,7 +17,13 @@ export default function DashboardPage() {
       setError(null);
       console.log('Fetching sermons from API...');
       
-      const response = await fetch('/api/sermons');
+      const response = await fetch('/api/sermons', {
+        method: 'GET',
+        headers: {
+          'Cache-Control': 'no-cache',
+        },
+      });
+      
       if (!response.ok) {
         throw new Error(`Failed to fetch sermons: ${response.status} ${response.statusText}`);
       }
@@ -32,8 +38,13 @@ export default function DashboardPage() {
         return;
       }
       
-      setSermons(data.sermons);
-      console.log(`Loaded ${data.sermons.length} sermons successfully`);
+      // Sort sermons by date, newest first
+      const sortedSermons = data.sermons.sort((a: Sermon, b: Sermon) => {
+        return new Date(b.date).getTime() - new Date(a.date).getTime();
+      });
+      
+      setSermons(sortedSermons);
+      console.log(`Loaded ${sortedSermons.length} sermons successfully`);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load sermons';
       setError(errorMessage);
@@ -126,6 +137,10 @@ export default function DashboardPage() {
     }
   };
 
+  const handleRetryFetch = () => {
+    fetchSermons();
+  };
+
   if (isLoading) {
     return (
       <div className="container mx-auto py-10 px-4">
@@ -143,7 +158,7 @@ export default function DashboardPage() {
           <p>{error}</p>
         </div>
         <button 
-          onClick={fetchSermons}
+          onClick={handleRetryFetch}
           className="bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600"
         >
           Try Again
@@ -152,166 +167,141 @@ export default function DashboardPage() {
     );
   }
 
-  return (
-    <div className="container mx-auto py-10 px-4">
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold">Sermon Dashboard</h1>
-        <div className="flex space-x-4">
-          {selectedSermons.length > 0 && (
-            <button
-              onClick={handleMultiDelete}
-              disabled={isDeleting}
-              className="bg-red-500 text-white py-2 px-4 rounded-md hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 disabled:bg-red-300 flex items-center"
-            >
-              {isDeleting ? (
-                <>
-                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d={'M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'}></path>
-                  </svg>
-                  Deleting...
-                </>
-              ) : (
-                <>Delete Selected ({selectedSermons.length})</>
-              )}
-            </button>
-          )}
-          <Link
-            href="/uploads"
-            className="bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
+  if (sermons.length === 0) {
+    return (
+      <div className="container mx-auto py-10 px-4">
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-2xl font-bold">Sermon Dashboard</h1>
+          <Link href="/uploads" className="bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600">
+            Upload New Sermon
+          </Link>
+        </div>
+        
+        <div className="text-center py-10 bg-gray-50 rounded-lg">
+          <h2 className="text-xl font-semibold mb-2">No Sermons Found</h2>
+          <p className="mb-4">Get started by uploading your first sermon.</p>
+          <Link 
+            href="/uploads" 
+            className="bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600"
           >
             Upload New Sermon
           </Link>
         </div>
       </div>
+    );
+  }
 
-      {sermons.length === 0 ? (
-        <div className="text-center py-10">
-          <p className="text-gray-600 mb-4">No sermons have been uploaded yet.</p>
-          <div>
-            <Link
-              href="/uploads"
-              className="bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
-            >
-              Upload a new sermon
-            </Link>
-          </div>
+  // Provide direct access to Transcription Status page
+  return (
+    <div className="container mx-auto py-10 px-4">
+      <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6">
+        <h1 className="text-2xl font-bold">Sermon Dashboard</h1>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <Link href="/uploads" className="bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 text-center">
+            Upload New Sermon
+          </Link>
+          <Link href="/dashboard/transcription-status" className="bg-green-500 text-white py-2 px-4 rounded-md hover:bg-green-600 text-center">
+            Transcription Status
+          </Link>
         </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full bg-white border border-gray-200 rounded-lg overflow-hidden">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  <label className="inline-flex items-center">
-                    <input
-                      type="checkbox"
-                      className="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50"
-                      checked={selectedSermons.length === sermons.length && sermons.length > 0}
-                      onChange={toggleSelectAll}
-                    />
-                  </label>
-                </th>
-                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Title
-                </th>
-                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Speaker
-                </th>
-                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date
-                </th>
-                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Transcription
-                </th>
-                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Snippets
-                </th>
-                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {sermons.map((sermon) => (
-                <tr key={sermon.id} className={`hover:bg-gray-50 ${selectedSermons.includes(sermon.id) ? 'bg-blue-50' : ''}`}>
-                  <td className="py-4 px-4 whitespace-nowrap">
-                    <label className="inline-flex items-center">
-                      <input
-                        type="checkbox"
-                        className="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50"
-                        checked={selectedSermons.includes(sermon.id)}
-                        onChange={() => toggleSelectSermon(sermon.id)}
-                      />
-                    </label>
-                  </td>
-                  <td className="py-4 px-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">
-                      {sermon.title}
-                    </div>
-                  </td>
-                  <td className="py-4 px-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-500">{sermon.speaker}</div>
-                  </td>
-                  <td className="py-4 px-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-500">
-                      {new Date(sermon.date).toLocaleDateString()}
-                    </div>
-                  </td>
-                  <td className="py-4 px-4 whitespace-nowrap">
-                    <span
-                      className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(
-                        sermon.transcriptionstatus
-                      )}`}
-                    >
-                      {sermon.transcriptionstatus}
-                    </span>
-                  </td>
-                  <td className="py-4 px-4 whitespace-nowrap">
-                    <Link
-                      href={`/dashboard/sermons/${sermon.id}/snippets`}
-                      className="text-blue-500 hover:underline"
-                    >
-                      View Snippets
-                    </Link>
-                  </td>
-                  <td className="py-4 px-4 whitespace-nowrap text-sm font-medium">
-                    <div className="flex space-x-2">
-                      <Link
-                        href={`/dashboard/sermons/${sermon.id}`}
-                        className="text-indigo-600 hover:text-indigo-900"
-                      >
-                        Details
-                      </Link>
-                      <button
-                        onClick={() => handleDelete(sermon.id)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      </div>
+
+      {selectedSermons.length > 0 && (
+        <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-md mb-4 flex justify-between items-center">
+          <p>{selectedSermons.length} sermon(s) selected</p>
+          <button
+            onClick={handleMultiDelete}
+            disabled={isDeleting}
+            className="bg-red-500 text-white py-1 px-3 rounded-md hover:bg-red-600 disabled:bg-red-300"
+          >
+            {isDeleting ? 'Deleting...' : 'Delete Selected'}
+          </button>
         </div>
       )}
+
+      <div className="overflow-x-auto bg-white rounded-lg shadow">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="p-4">
+                <input
+                  type="checkbox"
+                  checked={selectedSermons.length === sermons.length && sermons.length > 0}
+                  onChange={toggleSelectAll}
+                  className="h-4 w-4 text-blue-600 rounded"
+                />
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Title
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Speaker
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Date
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Status
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Actions
+              </th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {sermons.map((sermon) => (
+              <tr key={sermon.id} className="hover:bg-gray-50">
+                <td className="p-4">
+                  <input
+                    type="checkbox"
+                    checked={selectedSermons.includes(sermon.id)}
+                    onChange={() => toggleSelectSermon(sermon.id)}
+                    className="h-4 w-4 text-blue-600 rounded"
+                  />
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <Link href={`/dashboard/sermons/${sermon.id}`} className="text-blue-600 hover:underline">
+                    {sermon.title || 'Untitled'}
+                  </Link>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  {sermon.speaker || 'Unknown'}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  {sermon.date 
+                    ? new Date(sermon.date).toLocaleDateString() 
+                    : 'Unknown date'}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+                    ${sermon.transcriptionstatus === 'completed' ? 'bg-green-100 text-green-800' : 
+                      sermon.transcriptionstatus === 'processing' ? 'bg-yellow-100 text-yellow-800' : 
+                      sermon.transcriptionstatus === 'failed' ? 'bg-red-100 text-red-800' : 
+                      'bg-gray-100 text-gray-800'}`}>
+                    {sermon.transcriptionstatus || 'No transcription'}
+                  </span>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  <div className="flex space-x-2">
+                    <Link
+                      href={`/dashboard/sermons/${sermon.id}`}
+                      className="text-indigo-600 hover:text-indigo-900"
+                    >
+                      View
+                    </Link>
+                    <button
+                      onClick={() => handleDelete(sermon.id)}
+                      className="text-red-600 hover:text-red-900"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
-}
-
-function getStatusColor(status: string): string {
-  switch (status) {
-    case 'pending':
-      return 'bg-yellow-100 text-yellow-800';
-    case 'processing':
-      return 'bg-blue-100 text-blue-800';
-    case 'completed':
-      return 'bg-green-100 text-green-800';
-    case 'failed':
-      return 'bg-red-100 text-red-800';
-    default:
-      return 'bg-gray-100 text-gray-800';
-  }
 }
