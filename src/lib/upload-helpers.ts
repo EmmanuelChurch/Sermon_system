@@ -2,8 +2,8 @@
  * Helper utilities for chunked file uploads
  */
 
-// Maximum chunk size (4MB to stay under Vercel's 4.5MB limit)
-export const MAX_CHUNK_SIZE = 4 * 1024 * 1024; // 4MB in bytes
+// Maximum chunk size (8MB to reduce number of chunks while staying under most API limits)
+export const MAX_CHUNK_SIZE = 8 * 1024 * 1024; // 8MB in bytes
 
 /**
  * Split a file into chunks
