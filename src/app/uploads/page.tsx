@@ -6,8 +6,7 @@ import Link from 'next/link';
 import { compressAudioFileClient } from '@/lib/audio-processing';
 import { uploadFileInChunks } from '@/lib/upload-helpers';
 import { uploadAudioToSupabase } from '@/lib/supabase-storage';
-import { initFFmpeg, compressAudio } from '@/lib/ffmpeg-handler';
-import { fetchFile } from '@ffmpeg/util';
+import { compressAudio } from '@/lib/ffmpeg-handler';
 import { uploadAudioToS3 } from '@/lib/aws-storage';
 
 type UploadStep = 
@@ -258,94 +257,142 @@ export default function UploadPage() {
       // File upload
       if (file) {
         try {
-          // Always compress the audio file first using client-side FFmpeg
-          updateProgress('compression', 'Initializing compression engine...', 5);
-          
-          // Initialize FFmpeg
-          const ffmpeg = await initFFmpeg();
-          updateProgress('compression', 'Compressing audio file using FFmpeg in browser...', 10);
-          
-          // Compress the file in the browser
-          const originalFileSize = file.size;
-          const compressedBlob = await compressAudio(
-            file, 
-            ffmpeg, 
-            (progress: number) => {
-              // Map progress from 0-100 to our 10-30% range for compression step
-              const mappedProgress = 10 + (progress * 0.2);
-              updateProgress('compression', `Compressing: ${Math.round(progress)}%`, mappedProgress);
-            }
-          );
-          
-          // Update with compression results
-          const compressionRatio = Math.round((1 - compressedBlob.size / originalFileSize) * 100);
-          updateProgress(
-            'compression', 
-            `Compression complete: ${(compressedBlob.size / (1024 * 1024)).toFixed(2)} MB (${compressionRatio}% reduction)`, 
-            30
-          );
-          
-          // Create a File object from the blob with proper name and type
-          const audioFileToUpload = new File(
-            [compressedBlob], 
-            file.name.replace(/\.[^/.]+$/, "") + ".mp3", 
-            { type: "audio/mp3" }
-          );
-          
-          // For large files, use AWS S3 multipart upload
-          if (audioFileToUpload.size > 50 * 1024 * 1024) {
-            updateProgress('uploading', 'File is large, using AWS S3 multipart upload...', 40);
-            
-            // Upload file to AWS S3 using multipart upload
-            const { url } = await uploadAudioToS3(
-              audioFileToUpload,
-              audioFileToUpload.name,
-              (progress: number) => {
-                // Map progress from 0-100 to our 40-70% range
-                const mappedProgress = 40 + (progress * 0.3);
-                updateProgress('uploading', `Uploading: ${progress}%`, mappedProgress);
+          // Before uploading, try to compress the file
+          if (file.size > 1024 * 1024) { // Only compress files larger than 1MB
+            try {
+              setCompressionProgress('Compressing audio file using FFmpeg...');
+              setIsCompressing(true);
+              
+              const compressedBlob = await compressAudio(file, (progress) => {
+                setCompressionProgress(progress.toString() + '%');
+              });
+              
+              const originalSize = (file.size / (1024 * 1024)).toFixed(2);
+              const compressedSize = (compressedBlob.size / (1024 * 1024)).toFixed(2);
+              
+              setCompressionProgress(`Compression complete! Reduced from ${originalSize}MB to ${compressedSize}MB`);
+              
+              // Use the compressed file for upload
+              const audioFileToUpload = new File(
+                [compressedBlob], 
+                file.name.replace(/\.[^/.]+$/, "") + ".mp3", 
+                { type: "audio/mp3" }
+              );
+              
+              // For large files, use AWS S3 multipart upload
+              if (audioFileToUpload.size > 50 * 1024 * 1024) {
+                updateProgress('uploading', 'File is large, using AWS S3 multipart upload...', 40);
                 
-                // Update chunk display (approximately)
-                const totalChunks = Math.ceil(audioFileToUpload.size / (10 * 1024 * 1024)); // 10MB chunks
-                const currentChunk = Math.floor((progress / 100) * totalChunks);
+                // Upload file to AWS S3 using multipart upload
+                const { url } = await uploadAudioToS3(
+                  audioFileToUpload,
+                  audioFileToUpload.name,
+                  (progress: number) => {
+                    // Map progress from 0-100 to our 40-70% range
+                    const mappedProgress = 40 + (progress * 0.3);
+                    updateProgress('uploading', `Uploading: ${progress}%`, mappedProgress);
+                    
+                    // Update chunk display (approximately)
+                    const totalChunks = Math.ceil(audioFileToUpload.size / (10 * 1024 * 1024)); // 10MB chunks
+                    const currentChunk = Math.floor((progress / 100) * totalChunks);
+                    
+                    setChunkDetails({
+                      totalChunks,
+                      currentChunk,
+                      isUploading: true
+                    });
+                  }
+                );
                 
-                setChunkDetails({
-                  totalChunks,
-                  currentChunk,
-                  isUploading: true
+                // Create sermon record
+                const response = await fetch('/api/sermons', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    audioUrl: url,
+                    ...formDataValues,
+                  }),
+                });
+                
+                if (!response.ok) {
+                  const errorData = await response.json();
+                  throw new Error(errorData.error || 'Failed to create sermon record');
+                }
+                
+                const data = await response.json();
+                
+                // Start processing simulation
+                updateProgress('processing', 'Processing audio file...', 80);
+                
+                simulateProcessing(() => {
+                  updateProgress('completed', 'Upload and processing completed successfully!', 100);
+                  
+                  setTimeout(() => {
+                    router.push(`/dashboard/sermons/${data.id}`);
+                  }, 1000);
                 });
               }
-            );
-            
-            // Create sermon record
-            const response = await fetch('/api/sermons', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                audioUrl: url,
-                ...formDataValues,
-              }),
-            });
-            
-            if (!response.ok) {
-              const errorData = await response.json();
-              throw new Error(errorData.error || 'Failed to create sermon record');
+              else {
+                // Upload the file to AWS S3 storage
+                updateProgress('uploading', 'Uploading to AWS S3 storage...', 40);
+                
+                try {
+                  const { url } = await uploadAudioToS3(
+                    audioFileToUpload,
+                    audioFileToUpload.name,
+                    (progress) => {
+                      // Map progress from 0-100 to our 40-70% range
+                      const mappedProgress = 40 + (progress * 0.3);
+                      updateProgress('uploading', `Uploading: ${progress}%`, mappedProgress);
+                    }
+                  );
+                  
+                  // File is uploaded, now create the sermon record
+                  updateProgress('uploading', 'Upload complete, creating sermon record...', 70);
+                  
+                  // Create sermon record
+                  const response = await fetch('/api/sermons', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      audioUrl: url,
+                      ...formDataValues,
+                    }),
+                  });
+                  
+                  if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Failed to create sermon record');
+                  }
+                  
+                  const data = await response.json();
+                  
+                  // Start processing simulation after successful upload
+                  updateProgress('processing', 'Processing audio file...', 80);
+                  
+                  simulateProcessing(() => {
+                    updateProgress('completed', 'Upload and processing completed successfully!', 100);
+                    
+                    setTimeout(() => {
+                      router.push(`/dashboard/sermons/${data.id}`);
+                    }, 1000);
+                  });
+                } catch (uploadError) {
+                  console.error('Error uploading to S3:', uploadError);
+                  throw uploadError;
+                }
+              }
+            } catch (compressionError) {
+              console.error('Client-side compression failed:', compressionError);
+              setCompressionProgress('Compression failed, using original file instead.');
+              // Continue with the original file
+            } finally {
+              setIsCompressing(false);
             }
-            
-            const data = await response.json();
-            
-            // Start processing simulation
-            updateProgress('processing', 'Processing audio file...', 80);
-            
-            simulateProcessing(() => {
-              updateProgress('completed', 'Upload and processing completed successfully!', 100);
-              
-              setTimeout(() => {
-                router.push(`/dashboard/sermons/${data.id}`);
-              }, 1000);
-            });
           }
           else {
             // Upload the file to AWS S3 storage
@@ -353,8 +400,8 @@ export default function UploadPage() {
             
             try {
               const { url } = await uploadAudioToS3(
-                audioFileToUpload,
-                audioFileToUpload.name,
+                file,
+                file.name,
                 (progress) => {
                   // Map progress from 0-100 to our 40-70% range
                   const mappedProgress = 40 + (progress * 0.3);
@@ -399,12 +446,11 @@ export default function UploadPage() {
               throw uploadError;
             }
           }
-        } catch (ffmpegError: any) {
-          console.error('FFmpeg compression failed:', ffmpegError);
-          setError(`FFmpeg compression failed: ${ffmpegError.message || 'Unknown error'}. Please try a different file or try again later.`);
+        } catch (error) {
+          console.error('Submission error:', error);
+          setError(`An unexpected error occurred: ${error instanceof Error ? error.message : 'Unknown error'}`);
           setCurrentStep('error');
           setIsCompressing(false);
-          return;
         }
       } else {
         setError('Please select a file to upload');

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>FFmpeg Files Test</title>
+</head>
+<body>
+  <h1>FFmpeg Files Loading Test</h1>
+  <p>This page checks if FFmpeg WASM files are accessible.</p>
+  
+  <div id="status">Checking file availability...</div>
+  
+  <script>
+    // List of files to check
+    const filesToCheck = [
+      '/ffmpeg/ffmpeg-core.js',
+      '/ffmpeg/ffmpeg-core.wasm',
+      '/ffmpeg/ffmpeg-core.worker.js'
+    ];
+    
+    // Check each file
+    Promise.all(filesToCheck.map(file => 
+      fetch(file)
+        .then(response => {
+          if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+          return { file, status: 'Available', code: response.status };
+        })
+        .catch(e => ({ file, status: 'Not available', error: e.toString() }))
+    ))
+    .then(results => {
+      const statusDiv = document.getElementById('status');
+      statusDiv.innerHTML = '<h2>Results:</h2>';
+      
+      const table = document.createElement('table');
+      table.style.borderCollapse = 'collapse';
+      table.innerHTML = `
+        <tr>
+          <th style="border: 1px solid #ddd; padding: 8px;">File</th>
+          <th style="border: 1px solid #ddd; padding: 8px;">Status</th>
+          <th style="border: 1px solid #ddd; padding: 8px;">Details</th>
+        </tr>
+      `;
+      
+      results.forEach(result => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td style="border: 1px solid #ddd; padding: 8px;">${result.file}</td>
+          <td style="border: 1px solid #ddd; padding: 8px; color: ${result.status === 'Available' ? 'green' : 'red'}">
+            ${result.status}
+          </td>
+          <td style="border: 1px solid #ddd; padding: 8px;">
+            ${result.code ? `HTTP ${result.code}` : result.error || ''}
+          </td>
+        `;
+        table.appendChild(row);
+      });
+      
+      statusDiv.appendChild(table);
+    });
+  </script>
+</body>
+</html> 

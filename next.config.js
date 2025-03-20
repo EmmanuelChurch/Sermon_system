@@ -16,6 +16,19 @@ const nextConfig = {
       }
     };
     
+    // Add WASM file handling for FFmpeg
+    config.experiments = {
+      ...config.experiments,
+      asyncWebAssembly: true,
+      layers: true,
+    };
+
+    // Add rule for WASM files
+    config.module.rules.push({
+      test: /\.wasm$/,
+      type: 'asset/resource',
+    });
+    
     return config;
   },
   // Ensure serverless deployment on Vercel
@@ -46,6 +59,15 @@ const nextConfig = {
           {
             key: 'Cross-Origin-Embedder-Policy',
             value: 'require-corp',
+          },
+        ],
+      },
+      {
+        source: '/ffmpeg/:path*',
+        headers: [
+          {
+            key: 'Content-Type',
+            value: 'application/wasm',
           },
         ],
       },
