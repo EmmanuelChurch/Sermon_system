@@ -111,6 +111,7 @@ export async function POST(request: NextRequest) {
     
     // Get form fields
     if (!title || !speaker || !date) {
+      console.error('Missing required fields:', { title, speaker, date });
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
@@ -118,10 +119,29 @@ export async function POST(request: NextRequest) {
     }
     
     if (!audioUrl) {
+      console.error('No audio URL provided');
       return NextResponse.json(
         { error: 'No audio URL provided' },
         { status: 400 }
       );
+    }
+    
+    // Validate date format (YYYY-MM-DD)
+    const dateIsValid = /^\d{4}-\d{2}-\d{2}$/.test(date);
+    if (!dateIsValid) {
+      console.error('Invalid date format:', date);
+      // Try to fix common date format issues
+      const dateObj = new Date(date);
+      if (!isNaN(dateObj.getTime())) {
+        // Date is valid but in wrong format, convert to YYYY-MM-DD
+        date = dateObj.toISOString().split('T')[0];
+        console.log('Fixed date format:', date);
+      } else {
+        return NextResponse.json(
+          { error: 'Invalid date format. Please use YYYY-MM-DD format.' },
+          { status: 400 }
+        );
+      }
     }
     
     // Generate a unique ID for the sermon
@@ -138,18 +158,22 @@ export async function POST(request: NextRequest) {
       date,
       audiourl: finalAudioUrl,
       transcriptionstatus: 'not_started',
+      created_at: new Date().toISOString(),
     };
     
     // Save to Supabase
-    console.log('Saving sermon to Supabase:', sermonId);
-    const { error } = await supabaseAdmin
+    console.log('Saving sermon to Supabase with data:', sermon);
+    const { data, error } = await supabaseAdmin
       .from('sermons')
-      .insert(sermon);
+      .insert(sermon)
+      .select();
     
     if (error) {
       console.error('Error saving sermon to Supabase:', error);
       throw new Error(`Supabase error: ${error.message}`);
     }
+    
+    console.log('Sermon saved successfully:', data);
     
     return NextResponse.json({
       id: sermonId,
