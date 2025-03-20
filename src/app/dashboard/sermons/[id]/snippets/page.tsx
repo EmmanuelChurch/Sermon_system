@@ -19,41 +19,33 @@ export default function SermonSnippetsPage() {
 
   const fetchSnippets = async () => {
     try {
-      console.log(`Fetching snippets for sermon ${sermonId}`);
+      console.log('Fetching snippets for sermon:', sermonId);
       const snippetsResponse = await fetch(`/api/sermons/${sermonId}/snippets`);
       
       if (!snippetsResponse.ok) {
         const errorText = await snippetsResponse.text();
-        console.error('Snippets API response not OK:', snippetsResponse.status, errorText);
-        throw new Error(`Failed to fetch snippets: ${errorText}`);
+        console.error('Error response from snippets API:', snippetsResponse.status, errorText);
+        throw new Error(`Failed to fetch snippets: ${snippetsResponse.status} ${errorText}`);
       }
       
       const snippetsData = await snippetsResponse.json();
-      console.log('Snippets data received:', snippetsData);
+      console.log('Snippets data received:', { 
+        count: snippetsData.snippets?.length || 0,
+        source: snippetsData.source 
+      });
       
       if (!snippetsData.snippets) {
-        console.warn('No snippets array in response:', snippetsData);
+        console.warn('No snippets array in response');
+        setSnippets([]);
         return [];
       }
       
-      // Map the data to ensure it matches the Snippet type
-      const normalizedSnippets = snippetsData.snippets.map((snippet: any) => ({
-        id: snippet.id,
-        sermon_id: snippet.sermon_id || snippet.sermonid, // Handle both property names
-        platform: snippet.platform,
-        category: snippet.category || 'Uncategorized',
-        content: snippet.content,
-        format: snippet.format,
-        timestamp: snippet.timestamp || 0,
-        approved: snippet.approved || false,
-        posted: snippet.posted || false
-      }));
-      
-      setSnippets(normalizedSnippets);
-      return normalizedSnippets;
+      setSnippets(snippetsData.snippets);
+      return snippetsData.snippets;
     } catch (err) {
-      console.error('Error in fetchSnippets:', err);
-      setError(err instanceof Error ? err.message : 'Unknown error fetching snippets');
+      console.error('Error fetching snippets:', err);
+      setError(err instanceof Error ? err.message : String(err));
+      setSnippets([]);
       return [];
     }
   };
@@ -193,8 +185,16 @@ export default function SermonSnippetsPage() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto py-10 px-4 text-center">
-        <p>Loading snippets...</p>
+      <div className="container mx-auto py-10 px-4">
+        <Link href={`/dashboard/sermons/${sermonId}`} className="text-blue-500 hover:underline mb-6 inline-block">
+          ← Back to Sermon
+        </Link>
+        <div className="bg-white p-6 rounded-lg shadow-md mb-6">
+          <div className="flex items-center justify-center h-40">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+            <p className="ml-3">Loading snippets...</p>
+          </div>
+        </div>
       </div>
     );
   }
@@ -202,12 +202,23 @@ export default function SermonSnippetsPage() {
   if (error) {
     return (
       <div className="container mx-auto py-10 px-4">
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-          <p>{error}</p>
-        </div>
-        <Link href="/dashboard" className="text-blue-500 hover:underline">
-          Back to Dashboard
+        <Link href={`/dashboard/sermons/${sermonId}`} className="text-blue-500 hover:underline mb-6 inline-block">
+          ← Back to Sermon
         </Link>
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6 mb-6">
+          <h2 className="text-red-700 text-lg font-semibold mb-2">Error Loading Snippets</h2>
+          <p className="text-red-600">{error}</p>
+          <button 
+            onClick={() => {
+              setIsLoading(true);
+              setError(null);
+              fetchSnippets().finally(() => setIsLoading(false));
+            }}
+            className="mt-4 bg-red-100 hover:bg-red-200 text-red-700 font-semibold py-2 px-4 rounded"
+          >
+            Try Again
+          </button>
+        </div>
       </div>
     );
   }

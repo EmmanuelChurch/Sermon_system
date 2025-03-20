@@ -175,6 +175,33 @@ export async function POST(request: NextRequest) {
     
     console.log('Sermon saved successfully:', data);
     
+    // Automatically trigger transcription process
+    try {
+      console.log(`Auto-triggering transcription for sermon ${sermonId}`);
+      
+      // Make a fetch request to the transcribe endpoint
+      const transcribeResponse = await fetch(`${request.nextUrl.origin}/api/sermons/${sermonId}/transcribe`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          audioUrl: finalAudioUrl,
+          useMock: false,
+        }),
+      });
+      
+      if (!transcribeResponse.ok) {
+        console.error(`Failed to auto-trigger transcription: ${transcribeResponse.status} ${transcribeResponse.statusText}`);
+        // Continue anyway, don't fail the sermon creation
+      } else {
+        console.log('Transcription auto-triggered successfully');
+      }
+    } catch (transcriptionError) {
+      console.error('Error auto-triggering transcription:', transcriptionError);
+      // Continue anyway, don't fail the sermon creation
+    }
+
     return NextResponse.json({
       id: sermonId,
       message: 'Sermon created successfully in Supabase',
