@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useEffect, useState, useRef } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Sermon, Recording } from '@/types';
 import TranscribeButton from '@/components/TranscribeButton';
@@ -9,6 +9,7 @@ import AudioFileInfo from '@/components/AudioFileInfo';
 
 export default function SermonDetailsPage() {
   const params = useParams();
+  const router = useRouter();
   const sermonId = params.id as string;
   
   const [isLoading, setIsLoading] = useState(true);
@@ -19,6 +20,12 @@ export default function SermonDetailsPage() {
   const [showRecordingSelector, setShowRecordingSelector] = useState(false);
   const [fixingAudio, setFixingAudio] = useState(false);
   const [directAudioUrl, setDirectAudioUrl] = useState('');
+  const [audioLoaded, setAudioLoaded] = useState(false);
+  const [audioDuration, setAudioDuration] = useState<number | null>(null);
+  const [audioError, setAudioError] = useState<string | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [audioProgress, setAudioProgress] = useState(0);
+  const audioRef = useRef<HTMLAudioElement>(null);
 
   // Load the sermon details
   useEffect(() => {
@@ -27,7 +34,12 @@ export default function SermonDetailsPage() {
         setIsLoading(true);
         setError(null);
         
-        const response = await fetch(`/api/sermons/${sermonId}`);
+        const response = await fetch(`/api/sermons/${sermonId}`, {
+          method: 'GET',
+          headers: {
+            'Cache-Control': 'no-cache',
+          },
+        });
         
         if (!response.ok) {
           if (response.status === 404) {
@@ -41,6 +53,7 @@ export default function SermonDetailsPage() {
         
         const data = await response.json();
         setSermon(data);
+        console.log('Sermon data loaded:', data);
       } catch (err) {
         console.error('Error fetching sermon details:', err);
         setError(err instanceof Error ? err.message : 'Failed to fetch sermon details');
@@ -110,7 +123,6 @@ export default function SermonDetailsPage() {
 
   // Handle when a transcription is started successfully
   const handleTranscriptionStarted = () => {
-    // Refresh sermon data or update local state
     if (sermon) {
       setSermon({
         ...sermon,
@@ -119,14 +131,100 @@ export default function SermonDetailsPage() {
     }
   };
 
+  // Function to retry transcription if it seems stuck in pending state
+  const handleRetryTranscription = async () => {
+    if (!sermon?.audiourl) return;
+    
+    try {
+      const response = await fetch(`/api/sermons/${sermonId}/transcribe`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          audioUrl: sermon.audiourl,
+          force: true, // Force restart the transcription
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to retry transcription');
+      }
+      
+      handleTranscriptionStarted();
+      alert('Transcription process restarted. Please check the transcription status page for updates.');
+      
+    } catch (err) {
+      console.error('Error retrying transcription:', err);
+      alert(err instanceof Error ? err.message : 'Failed to retry transcription');
+    }
+  };
+
   // Format date for display
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+    } catch (e) {
+      return dateString;
+    }
+  };
+
+  // Handle audio loading and errors
+  const handleAudioLoaded = () => {
+    if (audioRef.current) {
+      setAudioLoaded(true);
+      setAudioError(null);
+      setAudioDuration(audioRef.current.duration);
+    }
+  };
+  
+  const handleAudioError = () => {
+    setAudioLoaded(false);
+    setAudioError('Could not load audio file. The file may be missing or in an unsupported format.');
+  };
+
+  // Monitor audio playback progress
+  const handleTimeUpdate = () => {
+    if (audioRef.current) {
+      const progress = (audioRef.current.currentTime / audioRef.current.duration) * 100;
+      setAudioProgress(progress);
+    }
+  };
+
+  // Handle play/pause
+  const togglePlayPause = () => {
+    if (audioRef.current) {
+      if (isPlaying) {
+        audioRef.current.pause();
+      } else {
+        audioRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  // Handle when audio play state changes
+  const handlePlayStateChange = () => {
+    setIsPlaying(!audioRef.current?.paused);
+  };
+
+  // Format time for audio duration
+  const formatTime = (seconds: number): string => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    
+    return `${minutes}:${secs.toString().padStart(2, '0')}`;
   };
 
   // Add a function to handle direct URL update
@@ -216,20 +314,129 @@ export default function SermonDetailsPage() {
 
   return (
     <div className="container mx-auto py-10 px-4">
-      <Link href="/dashboard" className="text-blue-500 hover:underline mb-6 inline-block">
-        ← Back to Dashboard
-      </Link>
+      <div className="flex justify-between items-center mb-6">
+        <Link href="/dashboard" className="text-blue-500 hover:underline">
+          ← Back to Dashboard
+        </Link>
+        <Link 
+          href="/dashboard/transcription-status" 
+          className="text-green-500 hover:text-green-600 hover:underline"
+        >
+          View All Transcription Status
+        </Link>
+      </div>
       
       <h1 className="text-3xl font-bold mb-2">{sermon.title}</h1>
       <p className="text-gray-600 mb-8">by {sermon.speaker} on {formatDate(sermon.date)}</p>
       
       <div className="grid md:grid-cols-2 gap-8">
         <div>
-          <AudioFileInfo 
-            audioUrl={sermon.audiourl}
-            onFixAudio={showFixAudioDialog}
-            sermonId={sermonId}
-          />
+          <div className="mb-6">
+            <h2 className="text-xl font-bold mb-3">Audio</h2>
+            
+            {!sermon.audiourl ? (
+              <div className="bg-red-50 border border-red-200 rounded-md p-4">
+                <p className="text-red-700 font-medium">No audio file available</p>
+                <p className="text-red-600 text-sm mt-2">
+                  You need to upload an audio file for this sermon first.
+                </p>
+              </div>
+            ) : (
+              <div className="bg-white border border-gray-200 rounded-md p-4">
+                <div className="mb-4">
+                  <audio 
+                    ref={audioRef}
+                    className={audioLoaded ? "" : "hidden"}
+                    onLoadedMetadata={handleAudioLoaded}
+                    onTimeUpdate={handleTimeUpdate}
+                    onError={handleAudioError}
+                    onPlay={handlePlayStateChange}
+                    onPause={handlePlayStateChange}
+                    preload="metadata"
+                    src={sermon.audiourl}
+                  >
+                    Your browser does not support the audio element.
+                  </audio>
+                  
+                  {!audioLoaded && !audioError && (
+                    <div className="flex justify-center items-center py-4">
+                      <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-blue-500"></div>
+                      <span className="ml-3 text-gray-600">Loading audio...</span>
+                    </div>
+                  )}
+                  
+                  {audioError && (
+                    <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-3">
+                      <p className="text-red-700">{audioError}</p>
+                    </div>
+                  )}
+                  
+                  {audioLoaded && (
+                    <div>
+                      <div className="flex items-center mb-2">
+                        <button 
+                          onClick={togglePlayPause}
+                          className="flex items-center justify-center h-10 w-10 rounded-full bg-blue-500 text-white hover:bg-blue-600 focus:outline-none"
+                        >
+                          {isPlaying ? (
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                            </svg>
+                          ) : (
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                            </svg>
+                          )}
+                        </button>
+                        <div className="w-full ml-3">
+                          <div className="bg-gray-200 rounded-full h-2.5 w-full">
+                            <div 
+                              className="bg-blue-500 h-2.5 rounded-full"
+                              style={{ width: `${audioProgress}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex justify-between text-sm text-gray-500">
+                        <span>
+                          {audioRef.current ? formatTime(audioRef.current.currentTime) : '0:00'}
+                        </span>
+                        <span>
+                          {audioDuration ? formatTime(audioDuration) : '0:00'}
+                        </span>
+                      </div>
+                      <div className="flex justify-end mt-2">
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={() => { if (audioRef.current) audioRef.current.playbackRate = Math.max(0.5, audioRef.current.playbackRate - 0.25) }}
+                            className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs"
+                          >
+                            Slower
+                          </button>
+                          <button
+                            onClick={() => { if (audioRef.current) audioRef.current.playbackRate = 1 }}
+                            className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs"
+                          >
+                            1x
+                          </button>
+                          <button
+                            onClick={() => { if (audioRef.current) audioRef.current.playbackRate = Math.min(2, audioRef.current.playbackRate + 0.25) }}
+                            className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs"
+                          >
+                            Faster
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
+                <p className="mt-2 text-xs text-gray-500 break-all">
+                  Audio URL: {sermon.audiourl}
+                </p>
+              </div>
+            )}
+          </div>
 
           <div className="mb-6">
             <h2 className="text-xl font-bold mb-3">Transcription</h2>
@@ -271,6 +478,31 @@ export default function SermonDetailsPage() {
                   </div>
                 )}
               </div>
+            ) : sermon.transcriptionstatus === 'pending' ? (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4">
+                <p className="text-yellow-700 font-medium">Transcription pending</p>
+                <p className="text-yellow-600 text-sm mt-1">
+                  This transcription is queued but hasn't started processing yet.
+                </p>
+                <p className="text-yellow-600 text-sm mt-1">
+                  If it has been pending for a long time, you can try restarting the process.
+                </p>
+                
+                <div className="mt-4 flex space-x-3">
+                  <button
+                    onClick={handleRetryTranscription}
+                    className="px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600"
+                  >
+                    Restart Transcription
+                  </button>
+                  <Link
+                    href="/dashboard/transcription-status"
+                    className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                  >
+                    Check Status Page
+                  </Link>
+                </div>
+              </div>
             ) : (
               <div>
                 {sermon.audiourl ? (
@@ -307,6 +539,10 @@ export default function SermonDetailsPage() {
               <div className="mb-4">
                 <p className="text-gray-500 text-sm">Date</p>
                 <p className="font-medium">{formatDate(sermon.date)}</p>
+              </div>
+              <div className="mb-4">
+                <p className="text-gray-500 text-sm">Created At</p>
+                <p className="font-medium">{formatDate(sermon.createdat)}</p>
               </div>
               <div>
                 <p className="text-gray-500 text-sm">ID</p>
