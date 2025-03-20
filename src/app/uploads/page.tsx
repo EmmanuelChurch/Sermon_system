@@ -159,10 +159,6 @@ export default function UploadPage() {
     simulateProcessing
   } = useProcessingSimulation();
 
-  // Add this to the state variables in the UploadPage component
-  const [isCompressingForDownload, setIsCompressingForDownload] = useState(false);
-  const [downloadLink, setDownloadLink] = useState<string | null>(null);
-
   // Helper function to update progress state
   const updateProgress = (step: UploadStep, detail: string, value: number) => {
     setCurrentStep(step);
@@ -388,62 +384,6 @@ export default function UploadPage() {
     }
   };
 
-  // Add a function to handle compression and download
-  const handleCompressAndDownload = async () => {
-    if (!file) {
-      setError('Please select a file to compress');
-      return;
-    }
-    
-    try {
-      setIsCompressingForDownload(true);
-      setCompressionProgress('Compressing audio file on server...');
-      
-      // Use the server-side compression endpoint
-      const formData = new FormData();
-      formData.append('file', file);
-      
-      const response = await fetch('/api/compress-audio', {
-        method: 'POST',
-        body: formData
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Server compression failed: ${response.status} ${response.statusText}`);
-      }
-      
-      const result = await response.json();
-      
-      if (result.error) {
-        throw new Error(`Server compression error: ${result.error}`);
-      }
-      
-      // Convert base64 to a Blob
-      const binaryData = atob(result.file);
-      const byteArray = new Uint8Array(binaryData.length);
-      for (let i = 0; i < binaryData.length; i++) {
-        byteArray[i] = binaryData.charCodeAt(i);
-      }
-      
-      // Create a Blob and URL for download
-      const blob = new Blob([byteArray.buffer], { type: result.mimeType });
-      const url = URL.createObjectURL(blob);
-      setDownloadLink(url);
-      
-      // Show compression results
-      const originalSize = (file.size / (1024 * 1024)).toFixed(2);
-      const compressedSize = (blob.size / (1024 * 1024)).toFixed(2);
-      setCompressionProgress(
-        `Compression complete! Reduced from ${originalSize}MB to ${compressedSize}MB. You can now download the compressed file.`
-      );
-    } catch (error) {
-      console.error('Compression for download failed:', error);
-      setCompressionProgress(`Compression failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setIsCompressingForDownload(false);
-    }
-  };
-
   // Function to render the progress indicator
   const renderProgressIndicator = () => {
     if (currentStep === 'idle') return null;
@@ -656,18 +596,6 @@ export default function UploadPage() {
                   >
                     Use URL
                   </button>
-                  {file && (
-                    <button
-                      type="button"
-                      onClick={handleCompressAndDownload}
-                      disabled={isCompressingForDownload}
-                      className={`bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded-md ${
-                        isCompressingForDownload ? 'opacity-50 cursor-not-allowed' : ''
-                      }`}
-                    >
-                      {isCompressingForDownload ? 'Compressing...' : 'Compress & Download'}
-                    </button>
-                  )}
                 </div>
                 {file && (
                   <div className="mt-2 text-sm">
@@ -677,20 +605,6 @@ export default function UploadPage() {
                 {compressionProgress && (
                   <div className="mt-2 text-sm text-blue-600">
                     {compressionProgress}
-                  </div>
-                )}
-                {downloadLink && (
-                  <div className="mt-2">
-                    <a 
-                      href={downloadLink} 
-                      download={file?.name.replace(/\.[^/.]+$/, "_compressed.mp3")}
-                      className="bg-blue-500 hover:bg-blue-600 text-white py-1 px-3 rounded-md text-sm inline-block"
-                    >
-                      Download Compressed File
-                    </a>
-                    <p className="text-xs text-gray-500 mt-1">
-                      You can upload this compressed version to save bandwidth and storage.
-                    </p>
                   </div>
                 )}
               </>

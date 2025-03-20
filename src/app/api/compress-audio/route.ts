@@ -1,47 +1,56 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { compressAudioFile } from '@/lib/openai-whisper';
-import { supabaseAdmin } from '@/lib/supabase';
+import { writeFile, unlink } from 'fs/promises';
+import { join } from 'path';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { v4 as uuidv4 } from 'uuid';
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
+import { createReadStream } from 'fs';
+import * as fs from 'fs';
+import * as os from 'os';
+
+const execAsync = promisify(exec);
+const OS_TEMP_DIR = process.env.TEMP || '/tmp';
 
 /**
  * Compresses an audio file and updates the sermon record with the compressed file URL
+ * @deprecated This endpoint is maintained for backward compatibility but client-side compression has been removed
  */
 export async function POST(request: NextRequest) {
   try {
-    console.log('--- AUDIO COMPRESSION REQUEST RECEIVED ---');
+    console.log('Server-side audio compression request received');
     
-    // Parse the FormData
+    // Return a deprecation notice
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('WARNING: The compress-audio endpoint is deprecated and will be removed in a future update.');
+    }
+    
+    // Check if request is multipart/form-data
+    if (!request.headers.get('content-type')?.includes('multipart/form-data')) {
+      return NextResponse.json(
+        { error: 'Request must be multipart/form-data' },
+        { status: 400 }
+      );
+    }
+    
+    // Get form data
     const formData = await request.formData();
-    const file = formData.get('file') as File | null;
-    const sermonId = formData.get('sermonId') as string | null;
-
-    if (!file) {
-      console.error('ERROR: No file provided in the request');
-      return NextResponse.json({ error: 'No file provided' }, { status: 400 });
+    const audioFile = formData.get('file') as File;
+    
+    if (!audioFile) {
+      console.error('No audio file provided');
+      return NextResponse.json(
+        { error: 'No audio file provided' },
+        { status: 400 }
+      );
     }
-
-    if (!sermonId) {
-      console.error('ERROR: No sermon ID provided in the request');
-      return NextResponse.json({ error: 'No sermon ID provided' }, { status: 400 });
-    }
-
-    // Check if the file is an audio file
-    const isAudio = file.type.startsWith('audio/');
-    if (!isAudio) {
-      console.error(`ERROR: Uploaded file is not an audio file. Type: ${file.type}`);
-      return NextResponse.json({ error: 'File must be an audio file' }, { status: 400 });
-    }
-
-    console.log(`Received file: ${file.name}, Size: ${file.size} bytes, Type: ${file.type}, SermonID: ${sermonId}`);
-
+    
+    console.log(`Received file: ${audioFile.name}, Size: ${audioFile.size} bytes, Type: ${audioFile.type}`);
+    
     // Create a temporary directory for file storage
     // In Vercel, use /tmp directory instead of os.tmpdir()
     const isVercel = process.env.VERCEL === '1';
     const tempBaseDir = isVercel ? '/tmp' : os.tmpdir();
-    const tempDir = path.join(tempBaseDir, 'sermon-audio');
+    const tempDir = join(tempBaseDir, 'sermon-audio');
     
     console.log(`Using temporary directory: ${tempDir}`);
     try {
@@ -67,103 +76,111 @@ export async function POST(request: NextRequest) {
         }
       }
     }
-
-    // Generate unique filenames with safer path handling
-    const sanitizedSermonId = sermonId.replace(/[^a-zA-Z0-9-]/g, '_');
-    const originalFilename = `${sanitizedSermonId}-${Date.now()}-audio.mp3`;
-    const originalFilePath = path.join(isVercel ? '/tmp' : tempDir, originalFilename);
-    console.log(`Generated original file path: ${originalFilePath}`);
-
-    // Convert the file to a Buffer and save it
-    console.log('Converting file to Buffer...');
-    const fileArrayBuffer = await file.arrayBuffer();
-    const fileBuffer = Buffer.from(fileArrayBuffer);
-    console.log(`Buffer created, size: ${fileBuffer.length} bytes`);
-    fs.writeFileSync(originalFilePath, fileBuffer);
-
-    console.log(`Original file saved at: ${originalFilePath}`);
-
-    // Compress the audio file
-    console.log('Starting audio compression...');
-    const compressedFilePath = await compressAudioFile(originalFilePath);
-    const compressedFileSize = fs.statSync(compressedFilePath).size;
-    const compressionRatio = ((file.size - compressedFileSize) / file.size * 100).toFixed(2);
-    console.log(`Compressed file saved at: ${compressedFilePath}`);
-    console.log(`Original size: ${file.size} bytes, Compressed size: ${compressedFileSize} bytes`);
-    console.log(`Compression ratio: ${compressionRatio}% reduction`);
-
-    // Upload the compressed file to Supabase Storage
-    console.log('Preparing to upload compressed file to storage...');
-    // Instead of streaming, read the file into a buffer
-    const compressedFileBuffer = fs.readFileSync(compressedFilePath);
-    const fileName = path.basename(compressedFilePath);
-    const fileExtension = path.extname(fileName);
-    const uniqueFileName = `${sermonId}/${uuidv4()}${fileExtension}`;
-    console.log(`Storage path: sermons/${uniqueFileName}`);
-
-    console.log('Uploading to Supabase storage...');
-    const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
-      .from('sermons')
-      .upload(uniqueFileName, compressedFileBuffer, {
-        contentType: file.type,
-        cacheControl: '3600',
-        upsert: false,
-      });
-
-    if (uploadError) {
-      console.error('Error uploading compressed file to storage:', uploadError);
-      return NextResponse.json({ error: 'Failed to upload compressed file' }, { status: 500 });
-    }
-
-    console.log('File uploaded successfully:', uploadData);
-
-    // Get the public URL for the uploaded file
-    console.log('Getting public URL for uploaded file...');
-    const { data: publicUrlData } = supabaseAdmin.storage
-      .from('sermons')
-      .getPublicUrl(uniqueFileName);
-
-    const publicUrl = publicUrlData.publicUrl;
-    console.log(`Public URL: ${publicUrl}`);
-
-    // Update the sermon record with the new audio URL
-    console.log(`Updating sermon record (ID: ${sermonId}) with new audio URL...`);
-    const { data: updateData, error: updateError } = await supabaseAdmin
-      .from('sermons')
-      .update({ audio_url: publicUrl })
-      .eq('id', sermonId)
-      .select();
-
-    if (updateError) {
-      console.error('Error updating sermon with new audio URL:', updateError);
-      return NextResponse.json({ error: 'Failed to update sermon record' }, { status: 500 });
-    }
-
-    console.log('Sermon record updated successfully:', updateData);
-
-    // Clean up temporary files
-    console.log('Cleaning up temporary files...');
+    
+    // Generate unique file names
+    const uniqueId = uuidv4();
+    const inputPath = join(tempDir, `input-${uniqueId}${getExtension(audioFile.name)}`);
+    const outputPath = join(tempDir, `output-${uniqueId}.mp3`);
+    
+    // Get file buffer
+    const buffer = Buffer.from(await audioFile.arrayBuffer());
+    
+    // Write the input file to temp directory
+    await writeFile(inputPath, buffer);
+    
     try {
-      fs.unlinkSync(originalFilePath);
-      fs.unlinkSync(compressedFilePath);
-      console.log('Temporary files removed');
-    } catch (cleanupError) {
-      console.error('Error cleaning up temporary files:', cleanupError);
+      // Check if ffmpeg is available
+      await execAsync('ffmpeg -version');
+      console.log('FFmpeg is available on the server');
+    } catch (error) {
+      console.error('FFmpeg not found on server:', error);
+      // If FFmpeg is not available, return the original file
+      return new NextResponse(buffer, {
+        headers: {
+          'Content-Type': audioFile.type || 'audio/mpeg',
+          'Content-Disposition': `attachment; filename="original-${audioFile.name}"`,
+        },
+      });
     }
-
-    console.log('--- AUDIO COMPRESSION COMPLETED SUCCESSFULLY ---');
-    return NextResponse.json({
-      success: true,
-      size: compressedFileSize,
-      url: publicUrl,
-      originalSize: file.size,
-      compressionRatio: `${compressionRatio}%`
-    });
+    
+    try {
+      // Compress the audio with FFmpeg
+      const bitrate = '64k'; // Can be passed from client if needed
+      console.log(`Compressing audio with FFmpeg: ${inputPath} -> ${outputPath}`);
+      await execAsync(`ffmpeg -i "${inputPath}" -b:a ${bitrate} -c:a libmp3lame -y "${outputPath}"`);
+      
+      // Read the compressed file
+      console.log('Reading compressed file');
+      const compressedBuffer = await readFileAsBuffer(outputPath);
+      
+      // Calculate compression stats
+      const originalSize = buffer.length;
+      const compressedSize = compressedBuffer.length;
+      const compressionRatio = ((originalSize - compressedSize) / originalSize * 100).toFixed(2);
+      console.log(`Compression complete: Original size: ${originalSize} bytes, Compressed size: ${compressedSize} bytes, Ratio: ${compressionRatio}%`);
+      
+      // Clean up temporary files
+      await Promise.all([
+        unlink(inputPath).catch(() => {}),
+        unlink(outputPath).catch(() => {})
+      ]);
+      
+      // Return the compressed audio with metadata
+      return NextResponse.json({
+        message: 'Audio file compressed successfully',
+        file: compressedBuffer.toString('base64'),
+        mimeType: audioFile.type || 'audio/mpeg',
+        originalSize: originalSize,
+        compressedSize: compressedSize,
+        compressionRatio: `${compressionRatio}%`,
+        filename: `${audioFile.name.replace(/\.[^/.]+$/, '')}.mp3`,
+        notice: 'This endpoint is deprecated and will be removed in a future update.'
+      });
+    } catch (error) {
+      console.error('Error compressing audio:', error);
+      
+      // Clean up input file
+      await unlink(inputPath).catch(() => {});
+      
+      // Return the original file if compression fails
+      return NextResponse.json({
+        message: 'Compression failed',
+        file: buffer.toString('base64'),
+        originalSize: buffer.length,
+        compressedSize: buffer.length,
+        compressionRatio: '0%',
+        filename: audioFile.name,
+        mimeType: audioFile.type || 'audio/mpeg',
+        error: 'Compression failed, returning original file',
+        notice: 'This endpoint is deprecated and will be removed in a future update.'
+      });
+    }
   } catch (error) {
-    console.error('Error processing audio compression:', error);
+    console.error('Error in compress-audio API:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unknown error occurred' },
+      { 
+        error: `Failed to compress audio: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        notice: 'This endpoint is deprecated and will be removed in a future update.'
+      },
       { status: 500 }
     );
   }
+}
+
+// Helper for reading files as buffer
+async function readFileAsBuffer(filePath: string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    const stream = createReadStream(filePath);
+    
+    stream.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+    stream.on('error', (err) => reject(err));
+    stream.on('end', () => resolve(Buffer.concat(chunks)));
+  });
+}
+
+// Helper to get file extension with the dot
+function getExtension(filename: string): string {
+  const ext = filename.substring(filename.lastIndexOf('.'));
+  return ext || '.wav';
 } 
