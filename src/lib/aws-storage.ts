@@ -4,16 +4,49 @@ import { S3Client, PutObjectCommand, GetObjectCommand,
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 // Initialize S3 client
-const s3Client = new S3Client({
-  region: process.env.AWS_REGION || "eu-north-1",
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || ""
+const createS3Client = () => {
+  // Check for required credentials
+  const region = process.env.AWS_REGION || "eu-north-1";
+  const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+  const bucketName = process.env.AWS_S3_BUCKET_NAME;
+  
+  // Log environment variables status (not the actual values)
+  console.log(`AWS Config Status:
+    Region: ${region ? 'Set' : 'Missing'}
+    Access Key: ${accessKeyId ? 'Set' : 'Missing'}
+    Secret Key: ${secretAccessKey ? 'Set' : 'Missing'}
+    Bucket Name: ${bucketName ? 'Set' : 'Missing'}
+  `);
+  
+  // Validate credentials before creating client
+  if (!accessKeyId || !secretAccessKey) {
+    console.error('Missing AWS credentials. Make sure AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are set in your environment variables.');
+    
+    // For local development only, use empty strings to allow code to continue
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('Using empty credentials in development mode. S3 operations will fail but app will continue running.');
+    }
   }
-});
+  
+  if (!bucketName) {
+    console.error('Missing AWS_S3_BUCKET_NAME environment variable. S3 operations will fail.');
+  }
+  
+  // Create and return the client
+  return new S3Client({
+    region,
+    credentials: {
+      accessKeyId: accessKeyId || "",
+      secretAccessKey: secretAccessKey || ""
+    }
+  });
+};
+
+const s3Client = createS3Client();
 
 // Bucket name from environment variable
-const BUCKET_NAME = process.env.AWS_S3_BUCKET_NAME || "emmanuel-church-sermons";
+const BUCKET_NAME = process.env.AWS_S3_BUCKET_NAME || "";
 
 /**
  * Upload a file to S3 with progress tracking
@@ -24,6 +57,11 @@ export async function uploadAudioToS3(
   onProgress?: (progress: number) => void
 ): Promise<{ url: string }> {
   try {
+    // Validate bucket name before proceeding
+    if (!BUCKET_NAME) {
+      throw new Error("AWS_S3_BUCKET_NAME environment variable is not set");
+    }
+    
     // Generate a unique path for the file
     const key = `sermons/${Date.now()}-${fileName}`;
     
@@ -54,7 +92,8 @@ export async function uploadAudioToS3(
     onProgress?.(100);
     
     // Return the URL
-    const url = `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+    const region = process.env.AWS_REGION || "eu-north-1";
+    const url = `https://${BUCKET_NAME}.s3.${region}.amazonaws.com/${key}`;
     return { url };
   } catch (error) {
     console.error("Error uploading to S3:", error);
