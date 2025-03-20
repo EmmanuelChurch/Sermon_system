@@ -25,6 +25,13 @@ export async function GET() {
       .select('*')
       .order('created_at', { ascending: false });
     
+    console.log('Supabase query executed. Results:', {
+      hasError: !!error,
+      errorMessage: error?.message,
+      sermonsCount: sermons?.length || 0,
+      sermonsData: sermons?.slice(0, 2) // Log first two sermons for debugging
+    });
+    
     if (error) {
       console.error('Error fetching sermons from Supabase:', error);
       throw error;
@@ -37,17 +44,25 @@ export async function GET() {
       });
     }
     
-    console.log(`Found ${sermons.length} sermons in Supabase`);
+    // Check for empty array but valid response
+    if (sermons.length === 0) {
+      console.log('Supabase returned empty array. This appears to be valid (no sermons yet)');
+    } else {
+      console.log(`Found ${sermons.length} sermons in Supabase`);
+    }
     
     return NextResponse.json({
       sermons
     });
   } catch (error) {
-    console.error('Error fetching sermons:', error);
+    console.error('Error fetching sermons from Supabase:', error);
     
     // Fallback to local storage if Supabase fails
     try {
+      console.log('Attempting fallback to local storage');
       const localSermons = await getSermons();
+      console.log(`Found ${localSermons?.length || 0} sermons in local storage`);
+      
       return NextResponse.json({
         sermons: localSermons || [],
         source: 'local_fallback'

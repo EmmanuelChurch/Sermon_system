@@ -177,18 +177,6 @@ export default function DashboardPage() {
             </button>
           )}
           <Link
-            href="/dashboard/tools/compression"
-            className="bg-purple-500 text-white py-2 px-4 rounded-md hover:bg-purple-600 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-50"
-          >
-            Compress Audio
-          </Link>
-          <Link
-            href="/recordings"
-            className="bg-green-500 text-white py-2 px-4 rounded-md hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50"
-          >
-            Use Recording
-          </Link>
-          <Link
             href="/uploads"
             className="bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
           >
@@ -200,17 +188,10 @@ export default function DashboardPage() {
       {sermons.length === 0 ? (
         <div className="text-center py-10">
           <p className="text-gray-600 mb-4">No sermons have been uploaded yet.</p>
-          <div className="flex justify-center space-x-4">
-            <Link
-              href="/recordings"
-              className="text-green-500 hover:underline"
-            >
-              Use an existing recording
-            </Link>
-            <span className="text-gray-400">|</span>
+          <div>
             <Link
               href="/uploads"
-              className="text-blue-500 hover:underline"
+              className="bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
             >
               Upload a new sermon
             </Link>
