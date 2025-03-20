@@ -26,6 +26,10 @@ export default function SermonDetailsPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioProgress, setAudioProgress] = useState(0);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [fileUploadStatus, setFileUploadStatus] = useState<string | null>(null);
+  const [fileUploadProgress, setFileUploadProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
 
   // Load the sermon details
   useEffect(() => {
@@ -260,6 +264,67 @@ export default function SermonDetailsPage() {
     }
   };
 
+  // Handle file upload
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+      setFileUploadStatus('Selected file: ' + file.name);
+      setFileUploadProgress(0);
+    }
+  };
+
+  const handleFileUpload = async () => {
+    if (!selectedFile) return;
+    setIsUploading(true);
+    setFileUploadProgress(10);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      
+      // Update upload progress
+      setFileUploadProgress(30);
+      setFileUploadStatus('Uploading file...');
+      
+      // Use our new API endpoint to upload the file
+      const response = await fetch(`/api/sermons/${sermonId}/audio`, {
+        method: 'POST',
+        body: formData,
+      });
+      
+      setFileUploadProgress(70);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to upload file');
+      }
+      
+      const data = await response.json();
+      
+      // Update the sermon state with the new audio URL
+      setSermon({
+        ...sermon!,
+        audiourl: data.url,
+        transcriptionstatus: 'pending'
+      });
+      
+      setFileUploadStatus('File uploaded successfully');
+      setFileUploadProgress(100);
+      
+      // Reload the page after a short delay to show the updated UI
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } catch (err) {
+      console.error('Error uploading file:', err);
+      setFileUploadStatus('Failed to upload file: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      setFileUploadProgress(0);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   useEffect(() => {
     // Load initial data
     const loadInitialData = async () => {
@@ -337,9 +402,65 @@ export default function SermonDetailsPage() {
             {!sermon.audiourl ? (
               <div className="bg-red-50 border border-red-200 rounded-md p-4">
                 <p className="text-red-700 font-medium">No audio file available</p>
-                <p className="text-red-600 text-sm mt-2">
+                <p className="text-red-600 text-sm mt-2 mb-4">
                   You need to upload an audio file for this sermon first.
                 </p>
+                
+                <div className="mt-4 space-y-4">
+                  <div className="border border-gray-200 rounded-md p-4 bg-white">
+                    <h3 className="font-medium mb-2">Upload Audio File</h3>
+                    <div className="mb-3">
+                      <input
+                        type="file"
+                        accept="audio/*"
+                        onChange={handleFileChange}
+                        className="block w-full text-sm text-gray-500
+                          file:mr-4 file:py-2 file:px-4
+                          file:rounded-md file:border-0
+                          file:text-sm file:font-semibold
+                          file:bg-blue-50 file:text-blue-700
+                          hover:file:bg-blue-100"
+                      />
+                      {fileUploadStatus && (
+                        <p className="mt-2 text-sm text-gray-600">{fileUploadStatus}</p>
+                      )}
+                      {fileUploadProgress > 0 && fileUploadProgress < 100 && (
+                        <div className="w-full bg-gray-200 rounded-full h-2.5 mt-2">
+                          <div 
+                            className="bg-blue-600 h-2.5 rounded-full" 
+                            style={{ width: `${fileUploadProgress}%` }}
+                          ></div>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="flex space-x-3">
+                      <button
+                        onClick={handleFileUpload}
+                        disabled={!selectedFile || isUploading}
+                        className={`px-4 py-2 rounded-md ${
+                          !selectedFile || isUploading
+                            ? 'bg-gray-300 cursor-not-allowed'
+                            : 'bg-blue-500 text-white hover:bg-blue-600'
+                        }`}
+                      >
+                        {isUploading ? 'Uploading...' : 'Upload Audio'}
+                      </button>
+                      
+                      <button
+                        onClick={() => setShowRecordingSelector(true)}
+                        className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                      >
+                        Choose from Recordings
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div className="text-sm text-gray-500">
+                    <p>Supported formats: MP3, WAV, M4A, AAC (Max 500MB)</p>
+                    <p>For large files, compression will be applied automatically.</p>
+                  </div>
+                </div>
               </div>
             ) : (
               <div className="bg-white border border-gray-200 rounded-md p-4">
@@ -505,20 +626,26 @@ export default function SermonDetailsPage() {
               </div>
             ) : (
               <div>
-                {sermon.audiourl ? (
-                  <div>
-                    <p className="text-gray-600 mb-4">This sermon has not been transcribed yet.</p>
-                    <TranscribeButton 
-                      sermonId={sermonId} 
-                      audioUrl={sermon.audiourl}
-                      onTranscriptionStarted={handleTranscriptionStarted}
-                    />
+                <p className="text-gray-600 mb-4">This sermon has not been transcribed yet.</p>
+                <div className="flex flex-col space-y-4">
+                  <TranscribeButton 
+                    sermonId={sermonId} 
+                    audioUrl={sermon.audiourl}
+                    onTranscriptionStarted={handleTranscriptionStarted}
+                  />
+                  
+                  <div className="mt-2 border-t pt-4 border-gray-200">
+                    <p className="text-sm text-gray-500 mb-2">
+                      After the transcription process starts, you can monitor its progress on the transcription status page.
+                    </p>
+                    <Link
+                      href="/dashboard/transcription-status"
+                      className="text-sm text-blue-500 hover:underline"
+                    >
+                      View all transcription jobs →
+                    </Link>
                   </div>
-                ) : (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4">
-                    <p className="text-yellow-700">No audio file available. Please add an audio file before transcribing.</p>
-                  </div>
-                )}
+                </div>
               </div>
             )}
           </div>
