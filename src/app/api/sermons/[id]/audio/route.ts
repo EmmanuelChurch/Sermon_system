@@ -1,113 +1,99 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { getAudioFilePath } from '@/lib/local-storage';
 import fs from 'fs';
-import path from 'path';
 
 // API endpoint to update a sermon's audio file
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
-    // Get the sermon ID from the URL params
-    const sermonId = (await params).id;
+    // Get sermon ID from params
+    const params = await Promise.resolve(context.params);
+    const sermonId = params.id;
+    
     if (!sermonId) {
       return NextResponse.json(
         { error: 'Missing sermon ID' },
         { status: 400 }
       );
     }
-
-    const body = await request.json();
-    const { recordingFile, externalUrl } = body;
-
-    // Check if either a recordingFile or an externalUrl is provided
+    
+    // Parse request body
+    const { recordingFile, externalUrl } = await request.json();
+    
+    // We need either a recording file or an external URL
     if (!recordingFile && !externalUrl) {
       return NextResponse.json(
-        { error: 'Missing recording file or external URL' },
+        { error: 'Either recordingFile or externalUrl is required' },
         { status: 400 }
       );
     }
-
-    console.log(`Updating sermon ${sermonId} with ${recordingFile ? `recording file ${recordingFile}` : `external URL ${externalUrl}`}`);
-
-    // Make sure the sermon exists
+    
+    // Get current sermon to update
     const { data: sermon, error: fetchError } = await supabaseAdmin
       .from('sermons')
       .select('*')
       .eq('id', sermonId)
       .single();
-
+    
     if (fetchError || !sermon) {
-      console.error('Sermon not found:', fetchError);
+      console.error('Error fetching sermon:', fetchError);
       return NextResponse.json(
         { error: 'Sermon not found' },
         { status: 404 }
       );
     }
-
-    let fileUrl;
-
-    // Handle external URL
-    if (externalUrl) {
-      // Validate the URL
-      try {
-        new URL(externalUrl);
-        fileUrl = externalUrl;
-        console.log(`Using external URL: ${fileUrl}`);
-      } catch {
-        return NextResponse.json(
-          { error: 'Invalid URL format' },
-          { status: 400 }
-        );
+    
+    let audioUrl;
+    
+    // Handle existing recording file
+    if (recordingFile) {
+      // Use the recordings directory path
+      const recordingsDir = process.env.RECORDINGS_DIR || 'recordings';
+      const sourceFile = `${recordingsDir}/${recordingFile}`;
+      
+      // Create a URL that will be served by our API
+      audioUrl = `/api/file/${recordingFile}`;
+      
+      // Check if recording exists
+      if (process.env.NODE_ENV !== 'production') {
+        if (!fs.existsSync(sourceFile)) {
+          console.warn(`Warning: Recording file does not exist at ${sourceFile}`);
+        }
       }
     } 
-    // Handle recording file
-    else if (recordingFile) {
-      // Define paths
-      const recordingsDir = path.join(process.cwd(), 'recordings');
-      const sourceFile = path.join(recordingsDir, recordingFile);
-      
-      // Check if source file exists
-      if (!fs.existsSync(sourceFile)) {
-        console.error(`Recording file not found at ${sourceFile}`);
-        return NextResponse.json(
-          { error: 'Recording file not found' },
-          { status: 404 }
-        );
-      }
-      
-      // Create a URL for the file
-      fileUrl = `/api/file/${recordingFile}`;
-      console.log(`Using local file: ${fileUrl}`);
+    // Handle external URL
+    else if (externalUrl) {
+      audioUrl = externalUrl;
     }
     
-    // Update the sermon record in Supabase
+    // Update the sermon with the new audioUrl
     const { error: updateError } = await supabaseAdmin
       .from('sermons')
       .update({
-        audiourl: fileUrl,
-        updatedat: new Date().toISOString()
+        audiourl: audioUrl,
       })
       .eq('id', sermonId);
-
+    
     if (updateError) {
-      console.error('Failed to update sermon record:', updateError);
+      console.error('Error updating sermon:', updateError);
       return NextResponse.json(
-        { error: `Failed to update sermon record: ${updateError.message}` },
+        { error: 'Failed to update sermon audio' },
         { status: 500 }
       );
     }
     
-    return NextResponse.json({ 
-      success: true, 
-      message: 'Sermon audio updated successfully',
-      audioUrl: fileUrl
+    return NextResponse.json({
+      success: true,
+      message: 'Audio URL updated successfully',
+      audioUrl
     });
-  } catch (error: unknown) {
+  } catch (error) {
     console.error('Error updating sermon audio:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to update sermon audio' },
+      { error: 'Failed to update sermon audio' },
       { status: 500 }
     );
   }

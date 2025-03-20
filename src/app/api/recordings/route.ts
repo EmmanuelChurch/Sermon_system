@@ -4,9 +4,62 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { supabaseAdmin } from '@/lib/supabase';
 
+// Helper function to check if running in Vercel
+const isVercel = () => {
+  return process.env.VERCEL || process.env.VERCEL_ENV;
+};
+
 // Endpoint to list recording files
 export async function GET() {
   try {
+    // In Vercel production, use Supabase to list sermons
+    if (isVercel()) {
+      console.log('Running in Vercel environment, using Supabase to list recordings');
+      
+      try {
+        // Get sermons from Supabase
+        const { data: sermons, error } = await supabaseAdmin
+          .from('sermons')
+          .select('id, title, audiourl, speaker, date, created_at')
+          .order('created_at', { ascending: false });
+          
+        if (error) {
+          console.error('Error fetching recordings from Supabase:', error);
+          throw error;
+        }
+        
+        // Transform to recordings format
+        const recordings = sermons
+          .filter(sermon => sermon.audiourl) // Only include sermons with audio
+          .map(sermon => {
+            // Extract filename from audiourl
+            const url = sermon.audiourl;
+            const name = url.split('/').pop() || `sermon-${sermon.id}.mp3`;
+            
+            return {
+              name,
+              id: sermon.id,
+              title: sermon.title || name,
+              speaker: sermon.speaker || 'Unknown',
+              size: 0, // Size unknown for remote files
+              type: 'mp3',
+              lastModified: sermon.created_at || new Date().toISOString(),
+              url: sermon.audiourl
+            };
+          });
+          
+        return NextResponse.json({
+          recordings
+        });
+      } catch (supabaseError) {
+        console.error('Supabase error:', supabaseError);
+        return NextResponse.json({
+          recordings: []
+        });
+      }
+    }
+    
+    // Local development: read from filesystem
     const recordingsDir = path.join(process.cwd(), 'recordings');
     
     // Create the directory if it doesn't exist
@@ -28,7 +81,8 @@ export async function GET() {
         name: file,
         size: stats.size,
         type: path.extname(file).slice(1).toLowerCase(),
-        lastModified: stats.mtime.toISOString()
+        lastModified: stats.mtime.toISOString(),
+        url: `/api/file/${file}`
       };
     }).filter(file => {
       // Filter audio files
@@ -42,7 +96,7 @@ export async function GET() {
   } catch (error) {
     console.error('Error listing recordings:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to list recordings' },
+      { error: error instanceof Error ? error.message : 'Failed to list recordings', recordings: [] },
       { status: 500 }
     );
   }
@@ -60,7 +114,44 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Define paths
+    // For Vercel: create a sermon record with the provided info
+    if (isVercel()) {
+      // Create a unique ID for the sermon
+      const sermonId = uuidv4();
+      
+      // In Vercel, we'll assume the fileName is already a valid URL
+      const isUrl = fileName.startsWith('http');
+      const audioUrl = isUrl ? fileName : `/api/file/${fileName}`;
+      
+      // Insert sermon record into Supabase
+      const { data, error } = await supabaseAdmin
+        .from('sermons')
+        .insert({
+          id: sermonId,
+          title,
+          speaker,
+          date,
+          audiourl: audioUrl,
+          transcriptionstatus: 'pending'
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error creating sermon from recording in Supabase:', error);
+        return NextResponse.json(
+          { error: `Failed to create sermon record: ${error.message}` },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        sermon: data
+      });
+    }
+    
+    // For local development: check if the file exists in the recordings directory
     const recordingsDir = path.join(process.cwd(), 'recordings');
     const sourceFile = path.join(recordingsDir, fileName);
     
