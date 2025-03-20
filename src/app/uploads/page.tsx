@@ -260,63 +260,254 @@ export default function UploadPage() {
           // Compress the audio file first
           updateProgress('compression', 'Compressing audio file...', 10);
           
-          // Use the server-side compression endpoint
-          const compressedFile = await compressFile(file);
+          // Use client-side compression for smaller files, but for large files use chunking
+          let audioFileToUpload = file;
+          
+          // If file is over 10MB, use chunked upload without server compression
+          if (file.size > 10 * 1024 * 1024) {
+            updateProgress('compression', 'File is large, preparing for chunked upload...', 20);
+          } else {
+            try {
+              // Try server-side compression for smaller files
+              const formData = new FormData();
+              formData.append('file', file);
+              
+              const response = await fetch('/api/compress-audio', {
+                method: 'POST',
+                body: formData
+              });
+              
+              if (response.ok) {
+                const blob = await response.blob();
+                audioFileToUpload = new File([blob], 
+                  file.name.replace(/\.[^/.]+$/, "") + ".mp3", 
+                  { type: "audio/mp3" }
+                );
+              }
+            } catch (error) {
+              console.warn('Compression failed, using original file:', error);
+              audioFileToUpload = file;
+            }
+          }
           
           // Update progress
-          const compressionRatio = Math.round((1 - compressedFile.size / file.size) * 100);
+          const compressionRatio = Math.round((1 - audioFileToUpload.size / file.size) * 100);
           updateProgress(
             'compression', 
-            `Compression complete: ${(compressedFile.size / (1024 * 1024)).toFixed(2)} MB (${compressionRatio}% reduction)`, 
+            `Compression complete: ${(audioFileToUpload.size / (1024 * 1024)).toFixed(2)} MB (${compressionRatio > 0 ? compressionRatio : 0}% reduction)`, 
             30
           );
           
-          // Switch to using Supabase storage for upload
-          updateProgress('uploading', 'Uploading to Supabase storage...', 40);
-          
-          // Upload the file to Supabase storage
-          const { url } = await uploadAudioToSupabase(
-            compressedFile,
-            compressedFile.name,
-            (progress) => {
-              // Map progress from 0-100 to our 40-70% range
-              const mappedProgress = 40 + (progress * 0.3);
-              updateProgress('uploading', `Uploading: ${progress}%`, mappedProgress);
-            }
-          );
-          
-          // File is uploaded, now create the sermon record
-          updateProgress('uploading', 'Upload complete, creating sermon record...', 70);
-          
-          // Create sermon record
-          const response = await fetch('/api/sermons', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              audioUrl: url,
-              ...formDataValues,
-            }),
-          });
-          
-          if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to create sermon record');
-          }
-          
-          const data = await response.json();
-          
-          // Start processing simulation after successful upload
-          updateProgress('processing', 'Processing audio file...', 80);
-          
-          simulateProcessing(() => {
-            updateProgress('completed', 'Upload and processing completed successfully!', 100);
+          // For large files, use chunked upload
+          if (audioFileToUpload.size > 50 * 1024 * 1024) {
+            updateProgress('uploading', 'File is too large for direct upload, using chunked upload...', 40);
             
-            setTimeout(() => {
-              router.push(`/dashboard/sermons/${data.id}`);
-            }, 1000);
-          });
+            // Calculate total chunks for progress tracking
+            const chunkSize = 5 * 1024 * 1024; // 5MB chunks
+            const totalChunks = Math.ceil(audioFileToUpload.size / chunkSize);
+            
+            // Update chunk details for UI
+            setChunkDetails({
+              totalChunks,
+              currentChunk: 0,
+              isUploading: true
+            });
+            
+            // Upload file in chunks
+            const uploadResult = await uploadFileInChunks(
+              audioFileToUpload,
+              {
+                onChunkComplete: (chunkIndex, totalChunks) => {
+                  // Update the current chunk in state
+                  setChunkDetails(prev => ({
+                    ...prev,
+                    currentChunk: chunkIndex
+                  }));
+                  
+                  // Calculate overall progress (40-70% range)
+                  const progress = 40 + ((chunkIndex / totalChunks) * 30);
+                  updateProgress(
+                    'uploading',
+                    `Uploading chunk ${chunkIndex + 1} of ${totalChunks}`,
+                    progress
+                  );
+                },
+                onProgress: (progress) => {
+                  // This is for individual chunk progress, we can use it if needed
+                  console.log(`Chunk upload progress: ${progress}%`);
+                },
+                maxRetries: 3 // Set max retries for chunk uploads
+              }
+            );
+            
+            // Mark chunking as complete
+            setChunkDetails(prev => ({
+              ...prev,
+              isUploading: false
+            }));
+            
+            updateProgress('uploading', 'Chunk upload complete, finalizing...', 70);
+            
+            // Create sermon record
+            const response = await fetch('/api/sermons', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                audioUrl: uploadResult.url,
+                ...formDataValues,
+              }),
+            });
+            
+            if (!response.ok) {
+              const errorData = await response.json();
+              throw new Error(errorData.error || 'Failed to create sermon record');
+            }
+            
+            const data = await response.json();
+            
+            // Start processing simulation
+            updateProgress('processing', 'Processing audio file...', 80);
+            
+            simulateProcessing(() => {
+              updateProgress('completed', 'Upload and processing completed successfully!', 100);
+              
+              setTimeout(() => {
+                router.push(`/dashboard/sermons/${data.id}`);
+              }, 1000);
+            });
+          }
+          else {
+            // Upload the file to Supabase storage for smaller files
+            updateProgress('uploading', 'Uploading to Supabase storage...', 40);
+            
+            try {
+              const { url } = await uploadAudioToSupabase(
+                audioFileToUpload,
+                audioFileToUpload.name,
+                (progress) => {
+                  // Map progress from 0-100 to our 40-70% range
+                  const mappedProgress = 40 + (progress * 0.3);
+                  updateProgress('uploading', `Uploading: ${progress}%`, mappedProgress);
+                }
+              );
+              
+              // File is uploaded, now create the sermon record
+              updateProgress('uploading', 'Upload complete, creating sermon record...', 70);
+              
+              // Create sermon record
+              const response = await fetch('/api/sermons', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  audioUrl: url,
+                  ...formDataValues,
+                }),
+              });
+              
+              if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to create sermon record');
+              }
+              
+              const data = await response.json();
+              
+              // Start processing simulation after successful upload
+              updateProgress('processing', 'Processing audio file...', 80);
+              
+              simulateProcessing(() => {
+                updateProgress('completed', 'Upload and processing completed successfully!', 100);
+                
+                setTimeout(() => {
+                  router.push(`/dashboard/sermons/${data.id}`);
+                }, 1000);
+              });
+            } catch (uploadError) {
+              console.error('Direct upload failed, falling back to chunked upload:', uploadError);
+              
+              // If direct upload fails, try chunked upload as fallback
+              updateProgress('uploading', 'Direct upload failed, switching to chunked upload...', 40);
+              
+              // Calculate total chunks for progress tracking
+              const chunkSize = 5 * 1024 * 1024; // 5MB chunks
+              const totalChunks = Math.ceil(audioFileToUpload.size / chunkSize);
+              
+              // Update chunk details for UI
+              setChunkDetails({
+                totalChunks,
+                currentChunk: 0,
+                isUploading: true
+              });
+              
+              // Upload file in chunks
+              const uploadResult = await uploadFileInChunks(
+                audioFileToUpload,
+                {
+                  onChunkComplete: (chunkIndex, totalChunks) => {
+                    // Update the current chunk in state
+                    setChunkDetails(prev => ({
+                      ...prev,
+                      currentChunk: chunkIndex
+                    }));
+                    
+                    // Calculate overall progress (40-70% range)
+                    const progress = 40 + ((chunkIndex / totalChunks) * 30);
+                    updateProgress(
+                      'uploading',
+                      `Uploading chunk ${chunkIndex + 1} of ${totalChunks}`,
+                      progress
+                    );
+                  },
+                  onProgress: (progress) => {
+                    // This is for individual chunk progress, we can use it if needed
+                    console.log(`Chunk upload progress: ${progress}%`);
+                  },
+                  maxRetries: 3 // Set max retries for chunk uploads
+                }
+              );
+              
+              // Mark chunking as complete
+              setChunkDetails(prev => ({
+                ...prev,
+                isUploading: false
+              }));
+              
+              updateProgress('uploading', 'Chunk upload complete, finalizing...', 70);
+              
+              // Create sermon record
+              const response = await fetch('/api/sermons', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  audioUrl: uploadResult.url,
+                  ...formDataValues,
+                }),
+              });
+              
+              if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to create sermon record');
+              }
+              
+              const data = await response.json();
+              
+              // Start processing simulation
+              updateProgress('processing', 'Processing audio file...', 80);
+              
+              simulateProcessing(() => {
+                updateProgress('completed', 'Upload and processing completed successfully!', 100);
+                
+                setTimeout(() => {
+                  router.push(`/dashboard/sermons/${data.id}`);
+                }, 1000);
+              });
+            }
+          }
         } catch (uploadError) {
           console.error('Upload failed:', uploadError);
           setError(`Failed to upload: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}`);
