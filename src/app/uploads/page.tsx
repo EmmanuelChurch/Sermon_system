@@ -258,50 +258,43 @@ export default function UploadPage() {
       // File upload
       if (file) {
         try {
-          // Compress the audio file first
-          updateProgress('compression', 'Compressing audio file...', 10);
+          // Always compress the audio file first using client-side FFmpeg
+          updateProgress('compression', 'Initializing compression engine...', 5);
           
-          // Always try compression first, regardless of file size
-          let audioFileToUpload = file;
+          // Initialize FFmpeg
+          const ffmpeg = await initFFmpeg();
+          updateProgress('compression', 'Compressing audio file using FFmpeg in browser...', 10);
           
-          try {
-            // Try compression for all files
-            const formData = new FormData();
-            formData.append('file', file);
-            
-            updateProgress('compression', 'Sending to compression server...', 15);
-            
-            const response = await fetch('/api/compress-audio', {
-              method: 'POST',
-              body: formData
-            });
-            
-            if (response.ok) {
-              const blob = await response.blob();
-              audioFileToUpload = new File([blob], 
-                file.name.replace(/\.[^/.]+$/, "") + ".mp3", 
-                { type: "audio/mp3" }
-              );
-              
-              console.log(`Compression successful: Original size: ${(file.size / (1024 * 1024)).toFixed(2)} MB, Compressed: ${(audioFileToUpload.size / (1024 * 1024)).toFixed(2)} MB`);
-            } else {
-              console.warn(`Server compression failed with status ${response.status}, using original file`);
+          // Compress the file in the browser
+          const originalFileSize = file.size;
+          const compressedBlob = await compressAudio(
+            file, 
+            ffmpeg, 
+            (progress: number) => {
+              // Map progress from 0-100 to our 10-30% range for compression step
+              const mappedProgress = 10 + (progress * 0.2);
+              updateProgress('compression', `Compressing: ${Math.round(progress)}%`, mappedProgress);
             }
-          } catch (error) {
-            console.warn('Compression failed, using original file:', error);
-          }
+          );
           
-          // Update progress
-          const compressionRatio = Math.round((1 - audioFileToUpload.size / file.size) * 100);
+          // Update with compression results
+          const compressionRatio = Math.round((1 - compressedBlob.size / originalFileSize) * 100);
           updateProgress(
             'compression', 
-            `Compression ${compressionRatio > 0 ? 'complete' : 'skipped'}: ${(audioFileToUpload.size / (1024 * 1024)).toFixed(2)} MB (${compressionRatio > 0 ? compressionRatio + '% reduction' : 'using original file'})`, 
+            `Compression complete: ${(compressedBlob.size / (1024 * 1024)).toFixed(2)} MB (${compressionRatio}% reduction)`, 
             30
+          );
+          
+          // Create a File object from the blob with proper name and type
+          const audioFileToUpload = new File(
+            [compressedBlob], 
+            file.name.replace(/\.[^/.]+$/, "") + ".mp3", 
+            { type: "audio/mp3" }
           );
           
           // For large files, use AWS S3 multipart upload
           if (audioFileToUpload.size > 50 * 1024 * 1024) {
-            updateProgress('uploading', 'File is too large for direct upload, using AWS S3 multipart upload...', 40);
+            updateProgress('uploading', 'File is large, using AWS S3 multipart upload...', 40);
             
             // Upload file to AWS S3 using multipart upload
             const { url } = await uploadAudioToS3(
@@ -402,76 +395,16 @@ export default function UploadPage() {
                 }, 1000);
               });
             } catch (uploadError) {
-              console.error('Direct upload failed, retrying with AWS multipart upload:', uploadError);
-              
-              // If direct upload fails, try again with AWS multipart upload (handled internally)
-              updateProgress('uploading', 'Direct upload failed, retrying with AWS multipart upload...', 40);
-              
-              // AWS S3 handles chunking internally in the uploadAudioToS3 function
-              const { url } = await uploadAudioToS3(
-                audioFileToUpload,
-                audioFileToUpload.name,
-                (progress: number) => {
-                  // Map progress from 0-100 to our 40-70% range
-                  const mappedProgress = 40 + (progress * 0.3);
-                  updateProgress('uploading', `Uploading with multipart: ${progress}%`, mappedProgress);
-                  
-                  // Update chunk display (approximately)
-                  const totalChunks = Math.ceil(audioFileToUpload.size / (10 * 1024 * 1024)); // 10MB chunks
-                  const currentChunk = Math.floor((progress / 100) * totalChunks);
-                  
-                  setChunkDetails({
-                    totalChunks,
-                    currentChunk,
-                    isUploading: true
-                  });
-                }
-              );
-              
-              // Mark chunking as complete
-              setChunkDetails(prev => ({
-                ...prev,
-                isUploading: false
-              }));
-              
-              updateProgress('uploading', 'Upload complete, finalizing...', 70);
-              
-              // Create sermon record
-              const response = await fetch('/api/sermons', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  audioUrl: url,
-                  ...formDataValues,
-                }),
-              });
-              
-              if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'Failed to create sermon record');
-              }
-              
-              const data = await response.json();
-              
-              // Start processing simulation
-              updateProgress('processing', 'Processing audio file...', 80);
-              
-              simulateProcessing(() => {
-                updateProgress('completed', 'Upload and processing completed successfully!', 100);
-                
-                setTimeout(() => {
-                  router.push(`/dashboard/sermons/${data.id}`);
-                }, 1000);
-              });
+              console.error('Error uploading to S3:', uploadError);
+              throw uploadError;
             }
           }
-        } catch (uploadError) {
-          console.error('Upload failed:', uploadError);
-          setError(`Failed to upload: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}`);
+        } catch (ffmpegError: any) {
+          console.error('FFmpeg compression failed:', ffmpegError);
+          setError(`FFmpeg compression failed: ${ffmpegError.message || 'Unknown error'}. Please try a different file or try again later.`);
           setCurrentStep('error');
           setIsCompressing(false);
+          return;
         }
       } else {
         setError('Please select a file to upload');
