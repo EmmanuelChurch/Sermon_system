@@ -64,8 +64,7 @@ export async function POST(request: Request) {
         .from('sermons')
         .update({
           transcription: MOCK_TRANSCRIPTION.transcription,
-          transcriptionstatus: 'completed',
-          updatedat: new Date().toISOString()
+          transcriptionstatus: 'completed'
         })
         .eq('id', sermonId);
 
@@ -132,8 +131,7 @@ export async function POST(request: Request) {
                 .from('sermons')
                 .update({
                   transcription: MOCK_TRANSCRIPTION.transcription,
-                  transcriptionstatus: 'completed',
-                  updatedat: new Date().toISOString()
+                  transcriptionstatus: 'completed'
                 })
                 .eq('id', sermonId);
 
@@ -208,8 +206,7 @@ export async function POST(request: Request) {
           .from('sermons')
           .update({
             transcription: result.transcription,
-            transcriptionstatus: 'completed',
-            updatedat: new Date().toISOString()
+            transcriptionstatus: 'completed'
           })
           .eq('id', sermonId);
           
@@ -247,8 +244,7 @@ export async function POST(request: Request) {
         await supabaseAdmin
           .from('sermons')
           .update({
-            transcriptionstatus: 'failed',
-            updatedat: new Date().toISOString()
+            transcriptionstatus: 'failed'
           })
           .eq('id', sermonId);
         

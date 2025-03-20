@@ -87,9 +87,7 @@ export async function POST(request: NextRequest) {
         speaker,
         date,
         audiourl: fileUrl,
-        transcriptionstatus: 'pending',
-        createdat: new Date().toISOString(),
-        updatedat: new Date().toISOString()
+        transcriptionstatus: 'pending'
       })
       .select()
       .single();
