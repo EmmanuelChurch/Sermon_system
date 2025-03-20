@@ -1,50 +1,19 @@
-import fs from 'fs';
-import path from 'path';
 import { NextRequest, NextResponse } from 'next/server';
 
+// This API route is deprecated as client-side FFmpeg has been disabled
+// due to browser compatibility issues. We now use direct upload to S3
+// without client-side compression.
+
 export async function GET(req: NextRequest) {
-  try {
-    // Get the file path from the URL
-    const url = new URL(req.url);
-    const filePath = url.pathname.replace('/api/ffmpeg', '');
-    
-    // Map to the actual file in public/ffmpeg
-    const publicFilePath = path.join(process.cwd(), 'public', 'ffmpeg', filePath);
-    
-    // Check if the file exists
-    if (!fs.existsSync(publicFilePath)) {
-      return new NextResponse('File not found', { status: 404 });
+  return new NextResponse(
+    JSON.stringify({ 
+      message: 'FFmpeg API endpoints are disabled. Direct upload is used instead.' 
+    }),
+    { 
+      status: 410, // Gone
+      headers: { 'Content-Type': 'application/json' } 
     }
-    
-    // Read the file content
-    const fileContent = fs.readFileSync(publicFilePath);
-    
-    // Determine content type based on file extension
-    let contentType = 'application/octet-stream';
-    if (filePath.endsWith('.js')) {
-      contentType = 'application/javascript';
-    } else if (filePath.endsWith('.wasm')) {
-      contentType = 'application/wasm';
-    }
-    
-    // Create and return the response with CORS headers
-    const response = new NextResponse(fileContent, {
-      headers: {
-        'Content-Type': contentType,
-        'Cross-Origin-Embedder-Policy': 'require-corp',
-        'Cross-Origin-Opener-Policy': 'same-origin',
-        'Cross-Origin-Resource-Policy': 'cross-origin',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-      },
-    });
-    
-    return response;
-  } catch (error) {
-    console.error('Error serving FFmpeg file:', error);
-    return new NextResponse('Internal Server Error', { status: 500 });
-  }
+  );
 }
 
 export async function OPTIONS(req: NextRequest) {
@@ -53,8 +22,6 @@ export async function OPTIONS(req: NextRequest) {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
-      'Cross-Origin-Opener-Policy': 'same-origin',
     },
   });
 } 

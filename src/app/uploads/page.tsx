@@ -6,7 +6,6 @@ import Link from 'next/link';
 import { compressAudioFileClient } from '@/lib/audio-processing';
 import { uploadFileInChunks } from '@/lib/upload-helpers';
 import { uploadAudioToSupabase } from '@/lib/supabase-storage';
-import { compressAudio } from '@/lib/ffmpeg-handler';
 import { uploadAudioToS3 } from '@/lib/aws-storage';
 
 type UploadStep = 
@@ -160,6 +159,10 @@ export default function UploadPage() {
     simulateProcessing
   } = useProcessingSimulation();
 
+  // Add this to the state variables in the UploadPage component
+  const [isCompressingForDownload, setIsCompressingForDownload] = useState(false);
+  const [downloadLink, setDownloadLink] = useState<string | null>(null);
+
   // Helper function to update progress state
   const updateProgress = (step: UploadStep, detail: string, value: number) => {
     setCurrentStep(step);
@@ -257,142 +260,63 @@ export default function UploadPage() {
       // File upload
       if (file) {
         try {
-          // Before uploading, try to compress the file
-          if (file.size > 1024 * 1024) { // Only compress files larger than 1MB
-            try {
-              setCompressionProgress('Compressing audio file using FFmpeg...');
-              setIsCompressing(true);
-              
-              const compressedBlob = await compressAudio(file, (progress) => {
-                setCompressionProgress(progress.toString() + '%');
-              });
-              
-              const originalSize = (file.size / (1024 * 1024)).toFixed(2);
-              const compressedSize = (compressedBlob.size / (1024 * 1024)).toFixed(2);
-              
-              setCompressionProgress(`Compression complete! Reduced from ${originalSize}MB to ${compressedSize}MB`);
-              
-              // Use the compressed file for upload
-              const audioFileToUpload = new File(
-                [compressedBlob], 
-                file.name.replace(/\.[^/.]+$/, "") + ".mp3", 
-                { type: "audio/mp3" }
-              );
-              
-              // For large files, use AWS S3 multipart upload
-              if (audioFileToUpload.size > 50 * 1024 * 1024) {
-                updateProgress('uploading', 'File is large, using AWS S3 multipart upload...', 40);
+          // Skip client-side compression and use direct upload
+          let audioFileToUpload = file;
+          
+          // For large files, use AWS S3 multipart upload
+          if (audioFileToUpload.size > 10 * 1024 * 1024) {
+            updateProgress('uploading', 'File is large, using S3 multipart upload...', 40);
+            
+            // Upload file to AWS S3 using multipart upload
+            const { url } = await uploadAudioToS3(
+              audioFileToUpload,
+              audioFileToUpload.name,
+              (progress: number) => {
+                // Map progress from 0-100 to our 40-70% range
+                const mappedProgress = 40 + (progress * 0.3);
+                updateProgress('uploading', `Uploading: ${progress}%`, mappedProgress);
                 
-                // Upload file to AWS S3 using multipart upload
-                const { url } = await uploadAudioToS3(
-                  audioFileToUpload,
-                  audioFileToUpload.name,
-                  (progress: number) => {
-                    // Map progress from 0-100 to our 40-70% range
-                    const mappedProgress = 40 + (progress * 0.3);
-                    updateProgress('uploading', `Uploading: ${progress}%`, mappedProgress);
-                    
-                    // Update chunk display (approximately)
-                    const totalChunks = Math.ceil(audioFileToUpload.size / (10 * 1024 * 1024)); // 10MB chunks
-                    const currentChunk = Math.floor((progress / 100) * totalChunks);
-                    
-                    setChunkDetails({
-                      totalChunks,
-                      currentChunk,
-                      isUploading: true
-                    });
-                  }
-                );
+                // Update chunk display (approximately)
+                const totalChunks = Math.ceil(audioFileToUpload.size / (10 * 1024 * 1024)); // 10MB chunks
+                const currentChunk = Math.floor((progress / 100) * totalChunks);
                 
-                // Create sermon record
-                const response = await fetch('/api/sermons', {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({
-                    audioUrl: url,
-                    ...formDataValues,
-                  }),
-                });
-                
-                if (!response.ok) {
-                  const errorData = await response.json();
-                  throw new Error(errorData.error || 'Failed to create sermon record');
-                }
-                
-                const data = await response.json();
-                
-                // Start processing simulation
-                updateProgress('processing', 'Processing audio file...', 80);
-                
-                simulateProcessing(() => {
-                  updateProgress('completed', 'Upload and processing completed successfully!', 100);
-                  
-                  setTimeout(() => {
-                    router.push(`/dashboard/sermons/${data.id}`);
-                  }, 1000);
+                setChunkDetails({
+                  totalChunks,
+                  currentChunk,
+                  isUploading: true
                 });
               }
-              else {
-                // Upload the file to AWS S3 storage
-                updateProgress('uploading', 'Uploading to AWS S3 storage...', 40);
-                
-                try {
-                  const { url } = await uploadAudioToS3(
-                    audioFileToUpload,
-                    audioFileToUpload.name,
-                    (progress) => {
-                      // Map progress from 0-100 to our 40-70% range
-                      const mappedProgress = 40 + (progress * 0.3);
-                      updateProgress('uploading', `Uploading: ${progress}%`, mappedProgress);
-                    }
-                  );
-                  
-                  // File is uploaded, now create the sermon record
-                  updateProgress('uploading', 'Upload complete, creating sermon record...', 70);
-                  
-                  // Create sermon record
-                  const response = await fetch('/api/sermons', {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                      audioUrl: url,
-                      ...formDataValues,
-                    }),
-                  });
-                  
-                  if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Failed to create sermon record');
-                  }
-                  
-                  const data = await response.json();
-                  
-                  // Start processing simulation after successful upload
-                  updateProgress('processing', 'Processing audio file...', 80);
-                  
-                  simulateProcessing(() => {
-                    updateProgress('completed', 'Upload and processing completed successfully!', 100);
-                    
-                    setTimeout(() => {
-                      router.push(`/dashboard/sermons/${data.id}`);
-                    }, 1000);
-                  });
-                } catch (uploadError) {
-                  console.error('Error uploading to S3:', uploadError);
-                  throw uploadError;
-                }
-              }
-            } catch (compressionError) {
-              console.error('Client-side compression failed:', compressionError);
-              setCompressionProgress('Compression failed, using original file instead.');
-              // Continue with the original file
-            } finally {
-              setIsCompressing(false);
+            );
+            
+            // Create sermon record
+            const response = await fetch('/api/sermons', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                audioUrl: url,
+                ...formDataValues,
+              }),
+            });
+            
+            if (!response.ok) {
+              const errorData = await response.json();
+              throw new Error(errorData.error || 'Failed to create sermon record');
             }
+            
+            const data = await response.json();
+            
+            // Start processing simulation
+            updateProgress('processing', 'Processing audio file...', 80);
+            
+            simulateProcessing(() => {
+              updateProgress('completed', 'Upload and processing completed successfully!', 100);
+              
+              setTimeout(() => {
+                router.push(`/dashboard/sermons/${data.id}`);
+              }, 1000);
+            });
           }
           else {
             // Upload the file to AWS S3 storage
@@ -400,8 +324,8 @@ export default function UploadPage() {
             
             try {
               const { url } = await uploadAudioToS3(
-                file,
-                file.name,
+                audioFileToUpload,
+                audioFileToUpload.name,
                 (progress) => {
                   // Map progress from 0-100 to our 40-70% range
                   const mappedProgress = 40 + (progress * 0.3);
@@ -461,6 +385,62 @@ export default function UploadPage() {
       setError(`An unexpected error occurred: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setCurrentStep('error');
       setIsCompressing(false);
+    }
+  };
+
+  // Add a function to handle compression and download
+  const handleCompressAndDownload = async () => {
+    if (!file) {
+      setError('Please select a file to compress');
+      return;
+    }
+    
+    try {
+      setIsCompressingForDownload(true);
+      setCompressionProgress('Compressing audio file on server...');
+      
+      // Use the server-side compression endpoint
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await fetch('/api/compress-audio', {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Server compression failed: ${response.status} ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      if (result.error) {
+        throw new Error(`Server compression error: ${result.error}`);
+      }
+      
+      // Convert base64 to a Blob
+      const binaryData = atob(result.file);
+      const byteArray = new Uint8Array(binaryData.length);
+      for (let i = 0; i < binaryData.length; i++) {
+        byteArray[i] = binaryData.charCodeAt(i);
+      }
+      
+      // Create a Blob and URL for download
+      const blob = new Blob([byteArray.buffer], { type: result.mimeType });
+      const url = URL.createObjectURL(blob);
+      setDownloadLink(url);
+      
+      // Show compression results
+      const originalSize = (file.size / (1024 * 1024)).toFixed(2);
+      const compressedSize = (blob.size / (1024 * 1024)).toFixed(2);
+      setCompressionProgress(
+        `Compression complete! Reduced from ${originalSize}MB to ${compressedSize}MB. You can now download the compressed file.`
+      );
+    } catch (error) {
+      console.error('Compression for download failed:', error);
+      setCompressionProgress(`Compression failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsCompressingForDownload(false);
     }
   };
 
@@ -672,10 +652,22 @@ export default function UploadPage() {
                   <button
                     type="button"
                     onClick={() => setIsUrlInput(true)}
-                    className="bg-gray-200 hover:bg-gray-300 text-gray-700 py-2 px-4 rounded-md"
+                    className="bg-gray-200 hover:bg-gray-300 text-gray-700 py-2 px-4 rounded-md mr-2"
                   >
                     Use URL
                   </button>
+                  {file && (
+                    <button
+                      type="button"
+                      onClick={handleCompressAndDownload}
+                      disabled={isCompressingForDownload}
+                      className={`bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded-md ${
+                        isCompressingForDownload ? 'opacity-50 cursor-not-allowed' : ''
+                      }`}
+                    >
+                      {isCompressingForDownload ? 'Compressing...' : 'Compress & Download'}
+                    </button>
+                  )}
                 </div>
                 {file && (
                   <div className="mt-2 text-sm">
@@ -683,8 +675,22 @@ export default function UploadPage() {
                   </div>
                 )}
                 {compressionProgress && (
-                  <div className="mt-2 text-sm text-gray-600">
+                  <div className="mt-2 text-sm text-blue-600">
                     {compressionProgress}
+                  </div>
+                )}
+                {downloadLink && (
+                  <div className="mt-2">
+                    <a 
+                      href={downloadLink} 
+                      download={file?.name.replace(/\.[^/.]+$/, "_compressed.mp3")}
+                      className="bg-blue-500 hover:bg-blue-600 text-white py-1 px-3 rounded-md text-sm inline-block"
+                    >
+                      Download Compressed File
+                    </a>
+                    <p className="text-xs text-gray-500 mt-1">
+                      You can upload this compressed version to save bandwidth and storage.
+                    </p>
                   </div>
                 )}
               </>

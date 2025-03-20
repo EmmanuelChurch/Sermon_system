@@ -42,84 +42,31 @@ export async function initFFmpeg(): Promise<FFmpeg> {
 
       console.log('FFmpeg instance created, loading core...');
       
-      // Try multiple loading methods with different CDNs and paths
-      const loadingMethods = [
-        // Method 1: Try loading from the API route (best for CORS)
-        async () => {
-          const baseURL = window.location.origin;
-          console.log('Attempting to load FFmpeg from API route');
-          await ffmpegInstance!.load({
-            coreURL: `${baseURL}/api/ffmpeg/ffmpeg-core.js`,
-            wasmURL: `${baseURL}/api/ffmpeg/ffmpeg-core.wasm`,
-            workerURL: `${baseURL}/api/ffmpeg/ffmpeg-core.worker.js`
-          });
-        },
+      // Load directly from esm.sh CDN - better CORS support
+      try {
+        console.log('Loading FFmpeg from esm.sh CDN');
+        await ffmpegInstance.load({
+          coreURL: 'https://esm.sh/@ffmpeg/core@0.12.4/dist/esm/ffmpeg-core.js',
+          wasmURL: 'https://esm.sh/@ffmpeg/core@0.12.4/dist/esm/ffmpeg-core.wasm',
+          workerURL: 'https://esm.sh/@ffmpeg/core@0.12.4/dist/esm/ffmpeg-core.worker.js'
+        });
+        console.log('FFmpeg core loaded successfully from esm.sh CDN');
+      } catch (esmError) {
+        console.error('Failed to load FFmpeg from esm.sh CDN:', esmError);
         
-        // Method 2: Try loading from site root
-        async () => {
-          console.log('Attempting to load FFmpeg from site root');
-          await ffmpegInstance!.load({
-            coreURL: '/ffmpeg-core.js',
-            wasmURL: '/ffmpeg-core.wasm'
-          });
-        },
-        
-        // Method 3: Try loading from /ffmpeg subdirectory
-        async () => {
-          const baseURL = window.location.origin;
-          console.log('Attempting to load FFmpeg from /ffmpeg subdirectory');
-          await ffmpegInstance!.load({
-            coreURL: `${baseURL}/ffmpeg/ffmpeg-core.js`,
-            wasmURL: `${baseURL}/ffmpeg/ffmpeg-core.wasm`
-          });
-        },
-        
-        // Method 4: Try loading from unpkg CDN
-        async () => {
-          console.log('Attempting to load FFmpeg from unpkg CDN');
-          await ffmpegInstance!.load({
-            coreURL: 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/ffmpeg-core.js',
-            wasmURL: 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/ffmpeg-core.wasm',
-            workerURL: 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/ffmpeg-core.worker.js'
-          });
-        },
-        
-        // Method 5: Try loading from jsDelivr CDN (alternative CDN)
-        async () => {
-          console.log('Attempting to load FFmpeg from jsDelivr CDN');
-          await ffmpegInstance!.load({
-            coreURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/ffmpeg-core.js',
-            wasmURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/ffmpeg-core.wasm',
-            workerURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/ffmpeg-core.worker.js'
-          });
-        },
-        
-        // Method 6: Try loading with no URLs (let FFmpeg find the files)
-        async () => {
-          console.log('Attempting to load FFmpeg with no explicit URLs');
-          await ffmpegInstance!.load();
-        }
-      ];
-      
-      // Try each loading method in sequence until one succeeds
-      let loaded = false;
-      let lastError = null;
-      
-      for (const method of loadingMethods) {
-        if (loaded) break;
-        
+        // Try unpkg as fallback
         try {
-          await method();
-          console.log('FFmpeg loaded successfully');
-          loaded = true;
-        } catch (error) {
-          console.warn('Loading method failed:', error);
-          lastError = error;
+          console.log('Trying fallback to unpkg CDN');
+          await ffmpegInstance.load({
+            coreURL: 'https://unpkg.com/@ffmpeg/core@0.12.4/dist/esm/ffmpeg-core.js',
+            wasmURL: 'https://unpkg.com/@ffmpeg/core@0.12.4/dist/esm/ffmpeg-core.wasm',
+            workerURL: 'https://unpkg.com/@ffmpeg/core@0.12.4/dist/esm/ffmpeg-core.worker.js'
+          });
+          console.log('FFmpeg core loaded successfully from unpkg CDN');
+        } catch (unpkgError) {
+          console.error('Failed to load FFmpeg from unpkg CDN:', unpkgError);
+          throw unpkgError;
         }
-      }
-      
-      if (!loaded) {
-        throw new Error(`All FFmpeg loading methods failed. Last error: ${lastError}`);
       }
       
       console.log('FFmpeg ready to use');

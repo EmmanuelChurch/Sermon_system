@@ -7,28 +7,6 @@ const nextConfig = {
       path: false,
     };
     
-    // Fix for FFmpeg dynamic imports
-    config.module.parser = {
-      ...config.module.parser,
-      javascript: {
-        ...config.module.parser.javascript,
-        dynamicImportMode: 'eager'
-      }
-    };
-    
-    // Add WASM file handling for FFmpeg
-    config.experiments = {
-      ...config.experiments,
-      asyncWebAssembly: true,
-      layers: true,
-    };
-
-    // Add rule for WASM files
-    config.module.rules.push({
-      test: /\.wasm$/,
-      type: 'asset/resource',
-    });
-    
     return config;
   },
   // Ensure serverless deployment on Vercel
@@ -44,7 +22,7 @@ const nextConfig = {
   },
   experimental: {
     serverActions: {
-      allowedOrigins: ["localhost:3000", "sermon-system-7g3w78px7-1-maceiras-projects.vercel.app"],
+      allowedOrigins: ["localhost:3000", "sermon-system-7g3w78px7-1-maceiras-projects.vercel.app", "sermon-system-oec5720b-1-maceiras-projects.vercel.app"],
     },
   },
   async headers() {
@@ -53,21 +31,16 @@ const nextConfig = {
         source: '/:path*',
         headers: [
           {
-            key: 'Cross-Origin-Opener-Policy',
-            value: 'same-origin',
+            key: 'Access-Control-Allow-Origin',
+            value: '*',
           },
           {
-            key: 'Cross-Origin-Embedder-Policy',
-            value: 'require-corp',
+            key: 'Access-Control-Allow-Methods',
+            value: 'GET, POST, OPTIONS',
           },
-        ],
-      },
-      {
-        source: '/ffmpeg/:path*',
-        headers: [
           {
-            key: 'Content-Type',
-            value: 'application/wasm',
+            key: 'Access-Control-Allow-Headers',
+            value: 'Content-Type, Authorization',
           },
         ],
       },
