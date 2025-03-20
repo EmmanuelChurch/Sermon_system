@@ -260,26 +260,14 @@ export default function UploadPage() {
           // Compress the audio file first
           updateProgress('compression', 'Compressing audio file...', 10);
           
-          // Use our custom FFmpeg handler instead of the client function
-          let audioFileToUpload;
-          try {
-            const compressedBlob = await compressAudio(file);
-            audioFileToUpload = new File([compressedBlob], 
-              file.name.replace(/\.[^/.]+$/, "") + ".mp3", 
-              { type: "audio/mp3" }
-            );
-          } catch (compressionError) {
-            console.error('Compression error:', compressionError);
-            // Fallback to uncompressed file if compression fails
-            console.warn('Compression failed, using original file');
-            audioFileToUpload = file;
-          }
+          // Use the server-side compression endpoint
+          const compressedFile = await compressFile(file);
           
           // Update progress
-          const compressionRatio = Math.round((1 - audioFileToUpload.size / file.size) * 100);
+          const compressionRatio = Math.round((1 - compressedFile.size / file.size) * 100);
           updateProgress(
             'compression', 
-            `Compression complete: ${(audioFileToUpload.size / (1024 * 1024)).toFixed(2)} MB (${compressionRatio}% reduction)`, 
+            `Compression complete: ${(compressedFile.size / (1024 * 1024)).toFixed(2)} MB (${compressionRatio}% reduction)`, 
             30
           );
           
@@ -288,8 +276,8 @@ export default function UploadPage() {
           
           // Upload the file to Supabase storage
           const { url } = await uploadAudioToSupabase(
-            audioFileToUpload,
-            audioFileToUpload.name,
+            compressedFile,
+            compressedFile.name,
             (progress) => {
               // Map progress from 0-100 to our 40-70% range
               const mappedProgress = 40 + (progress * 0.3);
@@ -715,4 +703,55 @@ export default function UploadPage() {
       </div>
     </div>
   );
+}
+
+async function compressFile(file: File): Promise<File> {
+  try {
+    console.log(`Compressing file ${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)...`);
+    
+    // Use the server-side compression endpoint
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const response = await fetch('/api/compress-audio', {
+      method: 'POST',
+      body: formData
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Server compression failed: ${response.status} ${response.statusText}`);
+    }
+    
+    const result = await response.json();
+    
+    if (result.error) {
+      throw new Error(`Server compression error: ${result.error}`);
+    }
+    
+    // Convert base64 back to a file
+    const binaryData = atob(result.file);
+    const byteArray = new Uint8Array(binaryData.length);
+    for (let i = 0; i < binaryData.length; i++) {
+      byteArray[i] = binaryData.charCodeAt(i);
+    }
+    
+    // Create a File object from the compressed data
+    const compressedFile = new File(
+      [byteArray.buffer], 
+      result.filename,
+      { type: result.mimeType }
+    );
+    
+    console.log(
+      `Compression complete: Original: ${(file.size / (1024 * 1024)).toFixed(2)} MB, ` +
+      `Compressed: ${(compressedFile.size / (1024 * 1024)).toFixed(2)} MB, ` +
+      `Ratio: ${result.compressionRatio}`
+    );
+    
+    return compressedFile;
+  } catch (error) {
+    console.error('Compression failed:', error);
+    console.warn('Using original file due to compression failure');
+    return file;
+  }
 } 
