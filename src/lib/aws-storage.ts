@@ -13,7 +13,7 @@ const s3Client = new S3Client({
 });
 
 // Bucket name from environment variable
-const BUCKET_NAME = process.env.AWS_S3_BUCKET_NAME || "";
+const BUCKET_NAME = process.env.AWS_S3_BUCKET_NAME || "emmanuel-church-sermons";
 
 /**
  * Upload a file to S3 with progress tracking

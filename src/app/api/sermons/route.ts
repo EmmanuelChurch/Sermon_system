@@ -30,15 +30,37 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData();
+    // Try to parse as JSON first (for AWS S3 uploads)
+    let title, speaker, date, audioUrl;
+    let formData;
+    
+    const contentType = request.headers.get('content-type') || '';
+    
+    if (contentType.includes('application/json')) {
+      // Handle JSON request from AWS S3 upload
+      const jsonData = await request.json();
+      title = jsonData.title;
+      speaker = jsonData.speaker;
+      date = jsonData.date;
+      audioUrl = jsonData.audioUrl;
+      console.log('Received JSON data:', { title, speaker, date, audioUrl });
+    } else if (contentType.includes('multipart/form-data') || contentType.includes('application/x-www-form-urlencoded')) {
+      // Handle form data for backward compatibility
+      formData = await request.formData();
+      title = formData.get('title') as string;
+      speaker = formData.get('speaker') as string;
+      date = formData.get('date') as string;
+      audioUrl = formData.get('audioUrl') as string;
+      console.log('Received form data:', { title, speaker, date, audioUrl });
+    } else {
+      console.error('Unsupported content type:', contentType);
+      return NextResponse.json(
+        { error: `Unsupported content type: ${contentType}` },
+        { status: 400 }
+      );
+    }
     
     // Get form fields
-    const title = formData.get('title') as string;
-    const speaker = formData.get('speaker') as string;
-    const date = formData.get('date') as string;
-    const audioFile = formData.get('audioFile') as File;
-    const audioUrl = formData.get('audioUrl') as string;
-    
     if (!title || !speaker || !date) {
       return NextResponse.json(
         { error: 'Missing required fields' },
@@ -46,9 +68,9 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    if (!audioFile && !audioUrl) {
+    if (!audioUrl) {
       return NextResponse.json(
-        { error: 'No audio file or URL provided' },
+        { error: 'No audio URL provided' },
         { status: 400 }
       );
     }
@@ -56,28 +78,8 @@ export async function POST(request: NextRequest) {
     // Generate a unique ID for the sermon
     const sermonId = uuidv4();
     
-    let finalAudioUrl = '';
-    
-    // Handle audio file upload
-    if (audioFile) {
-      try {
-        const arrayBuffer = await audioFile.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        const filename = audioFile.name;
-        
-        const { url } = await saveAudioFile(buffer, filename, sermonId);
-        finalAudioUrl = url;
-      } catch (err) {
-        console.error('Error saving audio file:', err);
-        return NextResponse.json(
-          { error: 'Failed to save audio file' },
-          { status: 500 }
-        );
-      }
-    } else if (audioUrl) {
-      // For external URLs, store directly
-      finalAudioUrl = audioUrl;
-    }
+    // For AWS S3 uploads, we already have the URL
+    const finalAudioUrl = audioUrl;
     
     // Save sermon data
     const sermon = {
@@ -100,7 +102,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Error creating sermon:', error);
     return NextResponse.json(
-      { error: 'Failed to create sermon' },
+      { error: `Failed to create sermon: ${error instanceof Error ? error.message : String(error)}` },
       { status: 500 }
     );
   }
