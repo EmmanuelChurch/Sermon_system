@@ -19,16 +19,42 @@ export default function SermonSnippetsPage() {
 
   const fetchSnippets = async () => {
     try {
+      console.log(`Fetching snippets for sermon ${sermonId}`);
       const snippetsResponse = await fetch(`/api/sermons/${sermonId}/snippets`);
+      
       if (!snippetsResponse.ok) {
-        throw new Error('Failed to fetch snippets');
+        const errorText = await snippetsResponse.text();
+        console.error('Snippets API response not OK:', snippetsResponse.status, errorText);
+        throw new Error(`Failed to fetch snippets: ${errorText}`);
       }
+      
       const snippetsData = await snippetsResponse.json();
-      setSnippets(snippetsData.snippets || []);
-      return snippetsData.snippets || [];
+      console.log('Snippets data received:', snippetsData);
+      
+      if (!snippetsData.snippets) {
+        console.warn('No snippets array in response:', snippetsData);
+        return [];
+      }
+      
+      // Map the data to ensure it matches the Snippet type
+      const normalizedSnippets = snippetsData.snippets.map((snippet: any) => ({
+        id: snippet.id,
+        sermon_id: snippet.sermon_id || snippet.sermonid, // Handle both property names
+        platform: snippet.platform,
+        category: snippet.category || 'Uncategorized',
+        content: snippet.content,
+        format: snippet.format,
+        timestamp: snippet.timestamp || 0,
+        approved: snippet.approved || false,
+        posted: snippet.posted || false
+      }));
+      
+      setSnippets(normalizedSnippets);
+      return normalizedSnippets;
     } catch (err) {
-      console.error('Error fetching snippets:', err);
-      throw err;
+      console.error('Error in fetchSnippets:', err);
+      setError(err instanceof Error ? err.message : 'Unknown error fetching snippets');
+      return [];
     }
   };
 
@@ -39,16 +65,28 @@ export default function SermonSnippetsPage() {
         setError(null);
         
         // Fetch sermon details
+        console.log(`Fetching sermon details for ${sermonId}`);
         const sermonResponse = await fetch(`/api/sermons/${sermonId}`);
+        
         if (!sermonResponse.ok) {
-          throw new Error('Failed to fetch sermon details');
+          const errorText = await sermonResponse.text();
+          console.error('Sermon API response not OK:', sermonResponse.status, errorText);
+          throw new Error(`Failed to fetch sermon details: ${errorText}`);
         }
+        
         const sermonData = await sermonResponse.json();
+        console.log('Sermon data received:', sermonData);
+        
+        if (!sermonData) {
+          throw new Error('No sermon data returned from API');
+        }
+        
         setSermon(sermonData);
         
         // Fetch snippets
         await fetchSnippets();
       } catch (err) {
+        console.error('Error in fetchData:', err);
         setError(err instanceof Error ? err.message : 'An unknown error occurred');
       } finally {
         setIsLoading(false);
@@ -56,7 +94,7 @@ export default function SermonSnippetsPage() {
     };
     
     fetchData();
-  }, [sermonId, fetchSnippets]);
+  }, [sermonId]); // Remove fetchSnippets from dependencies to avoid recreation
 
   const handleGenerateSnippets = async () => {
     if (!sermon?.transcription) {
