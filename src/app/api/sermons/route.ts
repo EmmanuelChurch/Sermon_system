@@ -123,8 +123,6 @@ export async function POST(request: NextRequest) {
       date,
       audiourl: finalAudioUrl,
       transcriptionstatus: 'not_started',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
     };
     
     // Save to Supabase

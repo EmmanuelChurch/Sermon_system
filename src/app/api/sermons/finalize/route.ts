@@ -426,8 +426,6 @@ export async function POST(request: NextRequest) {
           date: date || new Date().toISOString().split('T')[0],
           audiourl: saveResult.url,
           transcriptionstatus: 'not_started',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
         };
         
         console.log(`Saving sermon metadata: ${JSON.stringify(sermon)}`);
