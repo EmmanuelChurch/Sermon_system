@@ -1,11 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { saveSermon, saveAudioFile, getSermons } from '@/lib/local-storage';
+import { getSermons } from '@/lib/local-storage'; // Keep for now for backward compatibility
+import { supabaseAdmin } from '@/lib/supabase';
 import { v4 as uuidv4 } from 'uuid';
+import { mkdir } from 'fs/promises';
+import { dirname } from 'path';
+
+// Helper function to ensure directory exists before writing
+async function ensureDirectoryExists(filePath: string) {
+  try {
+    await mkdir(dirname(filePath), { recursive: true });
+  } catch (error) {
+    // Directory already exists or creation failed
+    console.error("Error creating directory:", error);
+  }
+}
 
 export async function GET() {
   try {
-    console.log('Fetching all sermons');
-    const sermons = await getSermons();
+    console.log('Fetching all sermons from Supabase');
+    
+    // Fetch sermons from Supabase
+    const { data: sermons, error } = await supabaseAdmin
+      .from('sermons')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (error) {
+      console.error('Error fetching sermons from Supabase:', error);
+      throw error;
+    }
     
     if (!sermons || !Array.isArray(sermons)) {
       console.error('No sermons found or invalid format', sermons);
@@ -14,17 +37,28 @@ export async function GET() {
       });
     }
     
-    console.log(`Found ${sermons.length} sermons`);
+    console.log(`Found ${sermons.length} sermons in Supabase`);
     
     return NextResponse.json({
       sermons
     });
   } catch (error) {
     console.error('Error fetching sermons:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch sermons', sermons: [] },
-      { status: 500 }
-    );
+    
+    // Fallback to local storage if Supabase fails
+    try {
+      const localSermons = await getSermons();
+      return NextResponse.json({
+        sermons: localSermons || [],
+        source: 'local_fallback'
+      });
+    } catch (fallbackError) {
+      console.error('Fallback to local storage also failed:', fallbackError);
+      return NextResponse.json(
+        { error: 'Failed to fetch sermons', sermons: [] },
+        { status: 500 }
+      );
+    }
   }
 }
 
@@ -81,7 +115,7 @@ export async function POST(request: NextRequest) {
     // For AWS S3 uploads, we already have the URL
     const finalAudioUrl = audioUrl;
     
-    // Save sermon data
+    // Create sermon data
     const sermon = {
       id: sermonId,
       title,
@@ -93,11 +127,20 @@ export async function POST(request: NextRequest) {
       updated_at: new Date().toISOString(),
     };
     
-    await saveSermon(sermon);
+    // Save to Supabase
+    console.log('Saving sermon to Supabase:', sermonId);
+    const { error } = await supabaseAdmin
+      .from('sermons')
+      .insert(sermon);
+    
+    if (error) {
+      console.error('Error saving sermon to Supabase:', error);
+      throw new Error(`Supabase error: ${error.message}`);
+    }
     
     return NextResponse.json({
       id: sermonId,
-      message: 'Sermon created successfully',
+      message: 'Sermon created successfully in Supabase',
     });
   } catch (error) {
     console.error('Error creating sermon:', error);

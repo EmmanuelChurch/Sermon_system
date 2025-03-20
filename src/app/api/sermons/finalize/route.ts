@@ -5,6 +5,19 @@ import * as os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 import { saveSermon, saveAudioFile } from '@/lib/local-storage';
 import { getStoragePaths, ensureStorageDirs } from '@/lib/storage-config';
+import { mkdir } from 'fs/promises';
+import { dirname } from 'path';
+
+// Add this helper function
+async function ensureDirectoryExists(filePath: string) {
+  try {
+    await mkdir(dirname(filePath), { recursive: true });
+    console.log(`Ensured directory exists: ${dirname(filePath)}`);
+  } catch (error) {
+    // Directory already exists or creation failed
+    console.error("Error creating directory:", error);
+  }
+}
 
 // Handler for finalizing chunked uploads
 export async function POST(request: NextRequest) {
@@ -300,6 +313,7 @@ export async function POST(request: NextRequest) {
         }
         
         // Write the combined buffer to the output file
+        await ensureDirectoryExists(reassembledFilePath);
         fs.writeFileSync(reassembledFilePath, fileBuffer);
         console.log(`File reassembled successfully using direct write, size: ${fs.statSync(reassembledFilePath).size} bytes`);
       } else {

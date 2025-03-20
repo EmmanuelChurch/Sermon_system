@@ -2,6 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { mkdir } from 'fs/promises';
+import { dirname } from 'path';
+
+// Add this helper function before the POST function
+async function ensureDirectoryExists(filePath: string) {
+  try {
+    await mkdir(dirname(filePath), { recursive: true });
+    console.log(`Ensured directory exists: ${dirname(filePath)}`);
+  } catch (error) {
+    // Directory already exists or creation failed
+    console.error("Error creating directory:", error);
+  }
+}
 
 // Handler for receiving file chunks
 export async function POST(request: NextRequest) {
@@ -59,6 +72,9 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
+      
+      // Ensure the directory exists before writing
+      await ensureDirectoryExists(chunkPath);
       
       // Write chunk to disk
       fs.writeFileSync(chunkPath, chunkBuffer);
