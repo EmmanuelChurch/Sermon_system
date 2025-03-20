@@ -8,6 +8,7 @@ import { uploadFileInChunks } from '@/lib/upload-helpers';
 import { uploadAudioToSupabase } from '@/lib/supabase-storage';
 import { initFFmpeg, compressAudio } from '@/lib/ffmpeg-handler';
 import { fetchFile } from '@ffmpeg/util';
+import { uploadAudioToS3 } from '@/lib/aws-storage';
 
 type UploadStep = 
   | 'idle' 
@@ -260,93 +261,68 @@ export default function UploadPage() {
           // Compress the audio file first
           updateProgress('compression', 'Compressing audio file...', 10);
           
-          // Use client-side compression for smaller files, but for large files use chunking
+          // Always try compression first, regardless of file size
           let audioFileToUpload = file;
           
-          // If file is over 10MB, use chunked upload without server compression
-          if (file.size > 10 * 1024 * 1024) {
-            updateProgress('compression', 'File is large, preparing for chunked upload...', 20);
-          } else {
-            try {
-              // Try server-side compression for smaller files
-              const formData = new FormData();
-              formData.append('file', file);
+          try {
+            // Try compression for all files
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            updateProgress('compression', 'Sending to compression server...', 15);
+            
+            const response = await fetch('/api/compress-audio', {
+              method: 'POST',
+              body: formData
+            });
+            
+            if (response.ok) {
+              const blob = await response.blob();
+              audioFileToUpload = new File([blob], 
+                file.name.replace(/\.[^/.]+$/, "") + ".mp3", 
+                { type: "audio/mp3" }
+              );
               
-              const response = await fetch('/api/compress-audio', {
-                method: 'POST',
-                body: formData
-              });
-              
-              if (response.ok) {
-                const blob = await response.blob();
-                audioFileToUpload = new File([blob], 
-                  file.name.replace(/\.[^/.]+$/, "") + ".mp3", 
-                  { type: "audio/mp3" }
-                );
-              }
-            } catch (error) {
-              console.warn('Compression failed, using original file:', error);
-              audioFileToUpload = file;
+              console.log(`Compression successful: Original size: ${(file.size / (1024 * 1024)).toFixed(2)} MB, Compressed: ${(audioFileToUpload.size / (1024 * 1024)).toFixed(2)} MB`);
+            } else {
+              console.warn(`Server compression failed with status ${response.status}, using original file`);
             }
+          } catch (error) {
+            console.warn('Compression failed, using original file:', error);
           }
           
           // Update progress
           const compressionRatio = Math.round((1 - audioFileToUpload.size / file.size) * 100);
           updateProgress(
             'compression', 
-            `Compression complete: ${(audioFileToUpload.size / (1024 * 1024)).toFixed(2)} MB (${compressionRatio > 0 ? compressionRatio : 0}% reduction)`, 
+            `Compression ${compressionRatio > 0 ? 'complete' : 'skipped'}: ${(audioFileToUpload.size / (1024 * 1024)).toFixed(2)} MB (${compressionRatio > 0 ? compressionRatio + '% reduction' : 'using original file'})`, 
             30
           );
           
-          // For large files, use chunked upload
+          // For large files, use AWS S3 multipart upload
           if (audioFileToUpload.size > 50 * 1024 * 1024) {
-            updateProgress('uploading', 'File is too large for direct upload, using chunked upload...', 40);
+            updateProgress('uploading', 'File is too large for direct upload, using AWS S3 multipart upload...', 40);
             
-            // Calculate total chunks for progress tracking
-            const chunkSize = 5 * 1024 * 1024; // 5MB chunks
-            const totalChunks = Math.ceil(audioFileToUpload.size / chunkSize);
-            
-            // Update chunk details for UI
-            setChunkDetails({
-              totalChunks,
-              currentChunk: 0,
-              isUploading: true
-            });
-            
-            // Upload file in chunks
-            const uploadResult = await uploadFileInChunks(
+            // Upload file to AWS S3 using multipart upload
+            const { url } = await uploadAudioToS3(
               audioFileToUpload,
-              {
-                onChunkComplete: (chunkIndex, totalChunks) => {
-                  // Update the current chunk in state
-                  setChunkDetails(prev => ({
-                    ...prev,
-                    currentChunk: chunkIndex
-                  }));
-                  
-                  // Calculate overall progress (40-70% range)
-                  const progress = 40 + ((chunkIndex / totalChunks) * 30);
-                  updateProgress(
-                    'uploading',
-                    `Uploading chunk ${chunkIndex + 1} of ${totalChunks}`,
-                    progress
-                  );
-                },
-                onProgress: (progress) => {
-                  // This is for individual chunk progress, we can use it if needed
-                  console.log(`Chunk upload progress: ${progress}%`);
-                },
-                maxRetries: 3 // Set max retries for chunk uploads
+              audioFileToUpload.name,
+              (progress: number) => {
+                // Map progress from 0-100 to our 40-70% range
+                const mappedProgress = 40 + (progress * 0.3);
+                updateProgress('uploading', `Uploading: ${progress}%`, mappedProgress);
+                
+                // Update chunk display (approximately)
+                const totalChunks = Math.ceil(audioFileToUpload.size / (10 * 1024 * 1024)); // 10MB chunks
+                const currentChunk = Math.floor((progress / 100) * totalChunks);
+                
+                setChunkDetails({
+                  totalChunks,
+                  currentChunk,
+                  isUploading: true
+                });
               }
             );
-            
-            // Mark chunking as complete
-            setChunkDetails(prev => ({
-              ...prev,
-              isUploading: false
-            }));
-            
-            updateProgress('uploading', 'Chunk upload complete, finalizing...', 70);
             
             // Create sermon record
             const response = await fetch('/api/sermons', {
@@ -355,7 +331,7 @@ export default function UploadPage() {
                 'Content-Type': 'application/json',
               },
               body: JSON.stringify({
-                audioUrl: uploadResult.url,
+                audioUrl: url,
                 ...formDataValues,
               }),
             });
@@ -379,11 +355,11 @@ export default function UploadPage() {
             });
           }
           else {
-            // Upload the file to Supabase storage for smaller files
-            updateProgress('uploading', 'Uploading to Supabase storage...', 40);
+            // Upload the file to AWS S3 storage
+            updateProgress('uploading', 'Uploading to AWS S3 storage...', 40);
             
             try {
-              const { url } = await uploadAudioToSupabase(
+              const { url } = await uploadAudioToS3(
                 audioFileToUpload,
                 audioFileToUpload.name,
                 (progress) => {
@@ -426,46 +402,29 @@ export default function UploadPage() {
                 }, 1000);
               });
             } catch (uploadError) {
-              console.error('Direct upload failed, falling back to chunked upload:', uploadError);
+              console.error('Direct upload failed, retrying with AWS multipart upload:', uploadError);
               
-              // If direct upload fails, try chunked upload as fallback
-              updateProgress('uploading', 'Direct upload failed, switching to chunked upload...', 40);
+              // If direct upload fails, try again with AWS multipart upload (handled internally)
+              updateProgress('uploading', 'Direct upload failed, retrying with AWS multipart upload...', 40);
               
-              // Calculate total chunks for progress tracking
-              const chunkSize = 5 * 1024 * 1024; // 5MB chunks
-              const totalChunks = Math.ceil(audioFileToUpload.size / chunkSize);
-              
-              // Update chunk details for UI
-              setChunkDetails({
-                totalChunks,
-                currentChunk: 0,
-                isUploading: true
-              });
-              
-              // Upload file in chunks
-              const uploadResult = await uploadFileInChunks(
+              // AWS S3 handles chunking internally in the uploadAudioToS3 function
+              const { url } = await uploadAudioToS3(
                 audioFileToUpload,
-                {
-                  onChunkComplete: (chunkIndex, totalChunks) => {
-                    // Update the current chunk in state
-                    setChunkDetails(prev => ({
-                      ...prev,
-                      currentChunk: chunkIndex
-                    }));
-                    
-                    // Calculate overall progress (40-70% range)
-                    const progress = 40 + ((chunkIndex / totalChunks) * 30);
-                    updateProgress(
-                      'uploading',
-                      `Uploading chunk ${chunkIndex + 1} of ${totalChunks}`,
-                      progress
-                    );
-                  },
-                  onProgress: (progress) => {
-                    // This is for individual chunk progress, we can use it if needed
-                    console.log(`Chunk upload progress: ${progress}%`);
-                  },
-                  maxRetries: 3 // Set max retries for chunk uploads
+                audioFileToUpload.name,
+                (progress: number) => {
+                  // Map progress from 0-100 to our 40-70% range
+                  const mappedProgress = 40 + (progress * 0.3);
+                  updateProgress('uploading', `Uploading with multipart: ${progress}%`, mappedProgress);
+                  
+                  // Update chunk display (approximately)
+                  const totalChunks = Math.ceil(audioFileToUpload.size / (10 * 1024 * 1024)); // 10MB chunks
+                  const currentChunk = Math.floor((progress / 100) * totalChunks);
+                  
+                  setChunkDetails({
+                    totalChunks,
+                    currentChunk,
+                    isUploading: true
+                  });
                 }
               );
               
@@ -475,7 +434,7 @@ export default function UploadPage() {
                 isUploading: false
               }));
               
-              updateProgress('uploading', 'Chunk upload complete, finalizing...', 70);
+              updateProgress('uploading', 'Upload complete, finalizing...', 70);
               
               // Create sermon record
               const response = await fetch('/api/sermons', {
@@ -484,7 +443,7 @@ export default function UploadPage() {
                   'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                  audioUrl: uploadResult.url,
+                  audioUrl: url,
                   ...formDataValues,
                 }),
               });
