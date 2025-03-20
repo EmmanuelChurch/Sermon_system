@@ -50,6 +50,7 @@ export async function POST(
         transcription,
         transcriptionstatus: 'completed',
         updatedat: new Date().toISOString(),
+        transcription_status: 'completed',
       })
       .eq('id', sermonId);
 
